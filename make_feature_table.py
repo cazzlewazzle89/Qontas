@@ -11,7 +11,7 @@ def make_feature_table(input_file, output_file, min_count, min_abundance):
     clusters["RelAbund"] = 100 * clusters["Count"] / clusters["Count"].sum()
     clusters = clusters[clusters["RelAbund"] >= args.min_abundance]
 
-    clusters.to_csv(args.output_file, sep="\t", index = FALSE)
+    clusters.to_csv(args.output_file, sep="\t", index = False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description = "Make a feature table from vsearch culstering output")

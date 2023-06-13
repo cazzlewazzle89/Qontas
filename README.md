@@ -1,5 +1,5 @@
 # Qontas  
-## Quantification of Oxford Nanopore Techonologies Amplicons  
+### Quantification of Oxford Nanopore Techonologies Amplicons  
 
 Disclaimer: should work on any amplicon of any length. Currenty trying to think of a better name.  
  

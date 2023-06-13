@@ -12,7 +12,7 @@ git clone https://github.com/cazzlewazzle89/ONT_Amplicons.git
 chmod +x ONT_Amplicons/*.py
 ```
 
-Add directory (eg. `/home/cwwalsh/Software/ONT_Amplicons`) to your path
+Add directory (eg. `/home/cwwalsh/Software/ONT_Amplicons`) to your path  
 Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/) 
 
 Run pipeline using the following commands - currently working on automating this

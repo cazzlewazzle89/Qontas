@@ -1,8 +1,11 @@
-# ONT_Amplicons
+# Qontas  
+## Quantification of Oxford Nanopore Techonologies Amplicons  
+
+Disclaimer: should work on any amplicon of any length. Currenty trying to think of a better name.  
  
 Create conda environment
 ```bash
-conda create -n ont_amplicon -c bioconda -c conda-forge minimap2 samtools=1.19 seqiolib seqkit vsearch pandas -y
+conda create -n ont_amplicon -c bioconda -c conda-forge minimap2 samtools=1.11 seqiolib seqkit vsearch pandas -y
 ```
 
 Clone repo and make scripts executable

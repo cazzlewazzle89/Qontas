@@ -10,12 +10,12 @@ conda create -n ont_amplicon -c bioconda -c conda-forge minimap2 samtools=1.11 s
 
 Clone repo and make scripts executable
  ```bash
-git clone https://github.com/cazzlewazzle89/ONT_Amplicons.git
+git clone https://github.com/cazzlewazzle89/Qontas.git
 
-chmod +x ONT_Amplicons/*.py
+chmod +x Qontas/*.py
 ```
 
-Add directory (eg. `/home/cwwalsh/Software/ONT_Amplicons`) to your path  
+Add directory (eg. `/home/cwwalsh/Software/Qontas`) to your path  
 Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/) 
 
 Run pipeline using the following commands - currently working on automating this

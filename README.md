@@ -47,3 +47,7 @@ cut -f 1 clusters.txt | sed '1d' > sample_readnames.txt
 # extact these sequences in FASTA format
 seqkit grep -f sample_readnames.txt sample.fasta > sample_sequences.fasta
 ```
+
+## TO DO
+- [ ] automate pipeline in single executable
+- [ ] modify to accept a list of input FASTA files (TSV format) and output a single merged feature table

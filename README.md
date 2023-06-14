@@ -18,7 +18,7 @@ chmod +x Qontas/*
 Add directory (eg. `/home/cwwalsh/Software/Qontas`) to your path  
 Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/) 
 
-Current automated version can be run using the script `qontas.sh` with 8 positional parameters.  
+Current full pipeline is run using the script `qontas.sh` with 8 positional parameters.  
 Namely:  
 1. Input FASTQ
 2. Output Basename
@@ -31,7 +31,7 @@ Namely:
 
 eg. `qontas.sh sample.fastq.gz sample ref.fa 600 650 2 0.1 10`  
 
-Script will print these values to screen and wait 10 seconds before running to give you a chance to cancel if anything is wrong  
+`qontas` will print these values to screen and wait 10 seconds before running to give you a chance to cancel if anything is wrong  
 
 Can manually run pipeline using the following commands
 ```bash

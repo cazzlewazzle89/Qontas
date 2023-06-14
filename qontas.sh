@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 
-INPUTREADS='/home/aminichiello/testingAmpliconSequences/DMG2303177.fastq.gz'
-BASENAME='DMG2303177'
-REFERENCE='/home/aminichiello/testingAmpliconSequences/rpoBreference.fasta'
-FILT_MINLEN=600
-FILT_MAXLEN=650
-FEAT_MINCOUNT=2
-FEAT_MINABUND=0.1
-THREADS=10
+echo ''
+INPUTREADS=$1
+BASENAME=$2
+REFERENCE=$3
+FILT_MINLEN=$4
+FILT_MAXLEN=$5
+FEAT_MINCOUNT=$6
+FEAT_MINABUND=$7
+THREADS=$8
+
+echo 'Input FASTQ is' $1
+echo 'Output basename is' $2
+echo 'Reference FASTA is' $3
+echo 'FASTQ reads shorter than' $4 'bp will be discarded'
+echo 'FASTQ reads longer than' $5 'bp will be discarded'
+echo 'Sequences observed fewer than' $6 'times per sample will be discarded before calculating relative abundance'
+echo 'Sequences with per-sample relative abundance below' $7 'will be discarded'
+echo 'Will use' $8 'threads'
+
+sleep 10
 
 filter_fastq.py \
     --input_file "$INPUTREADS" \

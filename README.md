@@ -12,7 +12,7 @@ Clone repo and make scripts executable
  ```bash
 git clone https://github.com/cazzlewazzle89/Qontas.git
 
-chmod +x Qontas/*.py
+chmod +x Qontas/*
 ```
 
 Add directory (eg. `/home/cwwalsh/Software/Qontas`) to your path  

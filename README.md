@@ -7,7 +7,7 @@
  
 Create conda environment
 ```bash
-conda create -n ont_amplicon -c bioconda -c conda-forge minimap2 seqiolib seqkit vsearch pandas pysam -y
+conda create -n qontas -c bioconda -c conda-forge minimap2 seqiolib seqkit vsearch pandas pysam -y
 ```
 
 Clone repo and make scripts executable

@@ -17,9 +17,9 @@ def write_forward_reads(bam_file, output_fasta):
 
     seq_records = []
     for header, sequence in sequence_data:
-    seq = Seq(sequence)
-    record = SeqRecord(seq, id = header)
-    seq_records.append(record)
+        seq = Seq(sequence)
+        record = SeqRecord(seq, id = header)
+        seq_records.append(record)
 
     SeqIO.write(seq_records, output_fasta, "fasta")
 

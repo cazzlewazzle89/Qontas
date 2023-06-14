@@ -1,6 +1,8 @@
 # Qontas  
 ### Quantification of Oxford Nanopore Techonologies Amplicon Sequences   
 
+[![DOI](https://zenodo.org/badge/652407080.svg)](https://zenodo.org/badge/latestdoi/652407080)  
+
 :construction: under construction :construction:  
  
 Create conda environment

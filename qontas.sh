@@ -17,7 +17,8 @@ echo 'FASTQ reads shorter than' $4 'bp will be discarded'
 echo 'FASTQ reads longer than' $5 'bp will be discarded'
 echo 'Sequences observed fewer than' $6 'times per sample will be discarded before calculating relative abundance'
 echo 'Sequences with per-sample relative abundance below' $7 'will be discarded'
-echo 'Will use' $8 'threads'
+echo 'Using' $8 'threads for minimap mapping'
+echo ''
 
 sleep 10
 

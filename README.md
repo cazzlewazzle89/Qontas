@@ -9,7 +9,7 @@ The aim of this tool is to take amplicon sequencing reads and generate a table o
 Input:
 1. sequence reads in FASTQ format (can be gzipped)
 2. reference sequence of the target region in FASTA format.  
-Output: 
+Output:   
 1. three column TSV file listing, for unique sequence, the name, count, and relative abundance
 2. MultiFASTA file containing the sequence of each unique seuqneced named in the TSV output file.
 

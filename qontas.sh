@@ -1,4 +1,4 @@
- #!/bin/sh
+#!/usr/bin/env bash
 
 INPUTREADS='/home/aminichiello/testingAmpliconSequences/DMG2303177.fastq.gz'
 BASENAME='DMG2303177'

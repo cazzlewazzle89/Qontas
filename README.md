@@ -68,6 +68,6 @@ seqkit grep -f sample_readnames.txt sample.fasta > sample_sequences.fasta
 ```
 
 ## TO DO
-- [ ] automate pipeline in single executable
-- [ ] modify to accept a list of input FASTA files (TSV format) and output a single merged feature table
-- [ ] include flag modifying minimap -x flag allow PacBio (`-x map-pb`) or Illumina (`-x sr`) reads
+- [ ] automate pipeline in (better) single executable
+- [ ] modify to accept a list of input FASTQ files (TSV format) and output a single merged feature table
+- [ ] include flag to modify minimap -x flag allowing PacBio (`-x map-pb`) or Illumina (`-x sr`) reads

@@ -1,7 +1,7 @@
 # Qontas  
 ### Quantification of Oxford Nanopore Techonologies Amplicon Sequences   
 
-Disclaimer: should work on any amplicon of any length. Currenty trying to think of a better name.  
+Disclaimer: :construction: under construction :construction:  
  
 Create conda environment
 ```bash
@@ -53,3 +53,4 @@ seqkit grep -f sample_readnames.txt sample.fasta > sample_sequences.fasta
 ## TO DO
 - [ ] automate pipeline in single executable
 - [ ] modify to accept a list of input FASTA files (TSV format) and output a single merged feature table
+- [ ] include flag modifying minimap -x flag allow PacBio (`-x map-pb`) or Illumina (`-x sr`) reads

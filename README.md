@@ -12,8 +12,8 @@ Input:
 2. Reference sequence of the target region in FASTA format.  
 
 Output:   
-1. Three column TSV file listing, for unique sequence, the name, count, and relative abundance
-2. MultiFASTA file containing the sequence of each unique sequence named in the TSV output file.
+1. Three column TSV file listing, for unique sequence, the name, count, and relative abundance (`basename_clusters.txt`)
+2. MultiFASTA file containing the sequence of each unique sequence named in the TSV output file (`basename_sequences.fasta`)
 
 ## SETUP  
 

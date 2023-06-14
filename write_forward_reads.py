@@ -20,7 +20,7 @@ def write_forward_reads(input_bam, output_fasta):
     seq_records = []
     for header, sequence in forward_reads:
         seq = Seq(sequence)
-        record = SeqRecord(seq, id = header)
+        record = SeqRecord(seq, id = header, description = "")
         seq_records.append(record)
 
     SeqIO.write(seq_records, output_fasta, "fasta")

@@ -1,5 +1,5 @@
 # Qontas  
-### Quantification of Oxford Nanopore Techonologies Amplicon Sequences   
+### :airplane: Quantification of Oxford Nanopore Techonologies Amplicon Sequences :airplane:   
 
 [![DOI](https://zenodo.org/badge/652407080.svg)](https://zenodo.org/badge/latestdoi/652407080)  
 

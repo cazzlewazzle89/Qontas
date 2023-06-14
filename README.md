@@ -63,7 +63,7 @@ minimap2 -a -x map-ont -t 10 reference.fa sample_filtered.fastq.gz | samtools so
 samtools index sample.bam
 
 # orient reads in "correct" forward orientation
-write_forward_reads.py --bam_file sample.bam --output_fasta sample.fasta
+write_forward_reads.py --input_bam sample.bam --output_fasta sample.fasta
 
 # identify unique reads and count their frequency
 vsearch --derep_fulllength sample.fasta --output sample_derep.fasta --uc sample_derep.txt

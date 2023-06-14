@@ -41,7 +41,7 @@ minimap2 \
 samtools index "$BASENAME".bam
 
 write_forward_reads.py \
-    --bam_file "$BASENAME".bam \
+    --input_bam "$BASENAME".bam \
     --output_fasta "$BASENAME".fasta
 
 vsearch \

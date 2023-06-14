@@ -27,9 +27,9 @@ Namely:
 3. Output basename
 4. Minimum read length for FASTQ filtering
 5. Maximum read length for FASTQ filtering
-6. Minimum times a sequences must be observed per samples to be retained for relative abundance calculations (recommended to set this to at least 2 to remove singletons)
-7. Mimimum relative abundance (as a percentage) for a sequence to be reported 
-8. Number of threads to use  
+6. Amount of times a sequence must be observed per sample to be retained for relative abundance calculation (recommended to set this >1 to remove singletons [highly likely to be PCR artifacts or sequencing errors])
+7. Mimimum relative abundance as a percentage (eg. 2 or 0.1) for a sequence to be reported 
+8. Number of threads to use for minimap2 mapping  
 
 eg. `qontas.sh sample.fastq.gz ref.fa sample 600 650 2 0.1 10`  
 
@@ -43,7 +43,7 @@ Alternatively, you can manually run the pipeline using the following commands
 filter_fastq.py --input_file sample.fastq.gz --output_file sample_filtered.fastq.gz --min_length 600 --max_length 650
 
 # align reads to a reference sequence to remove any further off-target amplicons
-minimap2 -a -x map-ont reference.fa sample_filtered.fastq.gz | samtools sort | samtools view -b -F 4 > sample.bam
+minimap2 -a -x map-ont -t 10 reference.fa sample_filtered.fastq.gz | samtools sort | samtools view -b -F 4 > sample.bam
 
 # index BAM file
 samtools index sample.bam
@@ -52,7 +52,7 @@ samtools index sample.bam
 write_forward_reads.py --bam_file sample.bam --output_fasta sample.fasta
 
 # identify unique reads and count their frequency
-vsearch --derep_fulllength sample.fasta --output sample_derep.fasta --threads 10 --uc sample_derep.txt
+vsearch --derep_fulllength sample.fasta --output sample_derep.fasta --uc sample_derep.txt
 
 # convert this information to a long-form (tidyverse-friendly) feature table
 # can modify min_count and min_abundance flags

@@ -15,9 +15,13 @@ def write_forward_reads(bam_file, output_fasta):
 
     bam.close()
 
-    with open(output_fasta, "w") as fasta_file:
-        for header, seq in forward_reads:
-            fasta_file.write(f">{header}\n{seq}\n")
+    seq_records = []
+    for header, sequence in sequence_data:
+    seq = Seq(sequence)
+    record = SeqRecord(seq, id = header)
+    seq_records.append(record)
+
+    SeqIO.write(seq_records, output_fasta, "fasta")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Write forward-oriented reads from a BAM file to a FASTA file")

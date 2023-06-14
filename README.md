@@ -21,11 +21,11 @@ Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-lin
 Current full pipeline is run using the script `qontas.sh` with 8 positional parameters.  
 Namely:  
 1. Input FASTQ
-2. Output Basename
+2. Output basename
 3. Input FASTA
 4. Minimum read length for FASTQ filtering
 5. Maximum read length for FASTQ filtering
-6. Minimum times a sequences must be observed per sampels to be retained for relative abundance calculations (recommended to set this to at least 2 to remove singletons)
+6. Minimum times a sequences must be observed per samples to be retained for relative abundance calculations (recommended to set this to at least 2 to remove singletons)
 7. Mimimum relative abundance (as a percentage) for a sequence to be reported 
 8. Number of threads to use  
 
@@ -33,7 +33,7 @@ eg. `qontas.sh sample.fastq.gz sample ref.fa 600 650 2 0.1 10`
 
 `qontas` will print these values to screen and wait 10 seconds before running to give you a chance to cancel if anything is wrong  
 
-Can manually run pipeline using the following commands
+Alternatively, you can manually run the pipeline using the following commands
 ```bash
 # take raw reads and remove those too long/short (likely off-target amplicons)
 # set appropriate --min_length and --max_length arguments based on your expected amplicon size

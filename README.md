@@ -6,6 +6,7 @@
 :construction: under construction :construction:  
 
 The aim of this tool is to take amplicon sequencing reads and generate a table of all variants identified, along with the counts and relative abundance abundances.  
+
 Input:
 1. sequence reads in FASTQ format (can be gzipped)
 2. reference sequence of the target region in FASTA format.  
@@ -14,7 +15,8 @@ Output:
 1. three column TSV file listing, for unique sequence, the name, count, and relative abundance
 2. MultiFASTA file containing the sequence of each unique seuqneced named in the TSV output file.
 
- 
+## SETUP  
+
 Create conda environment
 ```bash
 conda create -n qontas -c bioconda minimap2 phylopandas pysam seqiolib seqkit vsearch -y
@@ -28,7 +30,9 @@ chmod +x Qontas/*
 ```
 
 Add directory (eg. `/home/cwwalsh/Software/Qontas`) to your path  
-Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/) 
+Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/)   
+
+## USAGE  
 
 Current full pipeline is run using the script `qontas.sh` with 8 positional parameters.  
 Namely:  

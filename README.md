@@ -4,10 +4,19 @@
 [![DOI](https://zenodo.org/badge/652407080.svg)](https://zenodo.org/badge/latestdoi/652407080)  
 
 :construction: under construction :construction:  
+
+The aim of this tool is to take amplicon sequencing reads and generate a table of all variants identified, along with the counts and relative abundance abundances.  
+Input:
+1. sequence reads in FASTQ format (can be gzipped)
+2. reference sequence of the target region in FASTA format.  
+Output: 
+1. three column TSV file listing, for unique sequence, the name, count, and relative abundance
+2. MultiFASTA file containing the sequence of each unique seuqneced named in the TSV output file.
+
  
 Create conda environment
 ```bash
-conda create -n qontas -c bioconda -c conda-forge minimap2 seqiolib seqkit vsearch pandas pysam -y
+conda create -n qontas -c bioconda minimap2 phylopandas pysam seqiolib seqkit vsearch -y
 ```
 
 Clone repo and make scripts executable

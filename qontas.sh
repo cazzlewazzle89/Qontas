@@ -17,7 +17,7 @@ echo 'FASTQ reads shorter than' $4 'bp will be discarded'
 echo 'FASTQ reads longer than' $5 'bp will be discarded'
 echo 'Sequences observed fewer than' $6 'times per sample will be discarded before calculating relative abundance'
 echo 'Sequences with per-sample relative abundance below' $7 'will be discarded'
-echo 'Using' $8 'threads for minimap mapping'
+echo 'Using' $8 'threads for minimap2 mapping'
 echo ''
 
 sleep 10
@@ -59,3 +59,5 @@ make_feature_table.py \
 cut -f 1 "$BASENAME"_clusters.txt | sed '1d' > "$BASENAME"_readnames.txt
 
 seqkit grep -f "$BASENAME"_readnames.txt "$BASENAME".fasta > "$BASENAME"_sequences.fasta
+
+rm -f "$BASENAME"_filtered.fastq.gz "$BASENAME".bam "$BASENAME".bam.bai "$BASENAME".fasta "$BASENAME"_derep.fasta "$BASENAME"_derep.txt "$BASENAME"_readnames.txt

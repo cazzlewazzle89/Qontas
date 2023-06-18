@@ -55,5 +55,6 @@ eg. `qontas.sh sample.fastq.gz ref.fa sample 600 650 2 0.1 10`
 - [ ] give option to retain or detele temp files
 - [ ] give option to specify output directory
 - [ ] modify to accept a list of input FASTQ files (TSV format) and output a single merged feature table  
+   * alternatively, write a script that combines all the individual outputs 
    * Will need to modify to generate md5 read names so that they are groupable between samples  
-- [ ] include flag to modify minimap -x flag allowing PacBio (`-x map-pb`) or Illumina (`-x sr`) reads
+- [ ] include flag to modify minimap -x flag allowing PacBio (`-x map-pb`) or Illumina (`-x sr`) reads (these will probably need to be merged beforehand)

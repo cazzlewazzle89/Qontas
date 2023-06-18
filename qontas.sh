@@ -52,11 +52,9 @@ vsearch \
 
 make_feature_table.py \
     -i "$BASENAME"_derep.txt \
-    -o "$BASENAME"_clusters.txt \
+    -o "$BASENAME" \
     --min_count "$FEAT_MINCOUNT" \
     --min_abundance "$FEAT_MINABUND"
-
-cut -f 1 "$BASENAME"_clusters.txt | sed '1d' > "$BASENAME"_readnames.txt
 
 seqkit grep -f "$BASENAME"_readnames.txt "$BASENAME".fasta > "$BASENAME"_sequences.fasta
 

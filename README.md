@@ -5,7 +5,7 @@
 
 :construction: under construction :construction:  
 
-The aim of this tool is to take amplicon sequencing reads and generate a table of all variants identified, along with the counts and relative abundance abundances.  
+The aim of this tool is to take amplicon sequencing reads and generate a table of all variants identified, along with their counts and relative abundance abundances.  
 
 Input:
 1. Sequencing reads in FASTQ format (can be gzipped)

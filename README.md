@@ -1,19 +1,19 @@
 # Qontas  
-### :airplane: Quantification of Oxford Nanopore Techonologies Amplicon Sequences :airplane:   
+### :airplane: Quantification of ONT Amplicon Sequences :airplane:   
 
 [![DOI](https://zenodo.org/badge/652407080.svg)](https://zenodo.org/badge/latestdoi/652407080)  
 
 :construction: under construction :construction:  
 
-The aim of this tool is to take amplicon sequencing reads and generate a table of all variants identified, along with their counts and relative abundance abundances.  
+The aim of this tool is to take amplicon sequencing reads and generate a table of all variants identified, their counts, and relative abundances.  
 
 Input:
 1. Sequencing reads in FASTQ format (can be gzipped)
 2. Reference sequence of the target region in FASTA format.  
 
 Output:   
-1. Three column TSV file listing, for unique sequence, the name, count, and relative abundance (`basename_clusters.txt`)
-2. MultiFASTA file containing the sequence of each unique sequence named in the TSV output file (`basename_sequences.fasta`)
+1. `basename_clusters.txt` - three column TSV file listing, for unique sequence, the name, count, and relative abundance
+2. `basename_sequences.fasta` - multiFASTA file containing the sequence of each unique sequence named in `basename_clusters.txt`
 
 ## SETUP  
 
@@ -51,6 +51,7 @@ eg. `qontas.sh sample.fastq.gz ref.fa sample 600 650 2 0.1 10`
 
 ## TO DO
 - [ ] automate pipeline in (better) single executable
+- [ ] create test dataset  
 - [ ] give option to retain or detele temp files
 - [ ] give option to specify output directory
 - [ ] modify to accept a list of input FASTQ files (TSV format) and output a single merged feature table  

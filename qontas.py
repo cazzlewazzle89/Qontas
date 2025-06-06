@@ -56,8 +56,10 @@ def main():
 
     bamfile = pysam.AlignmentFile(args.bam, "rb")
 
+    skipped_reads = 0
+
     for read in bamfile.fetch(ref_name):
-        if read.is_unmapped:
+        if read.is_unmapped or read.query_sequence is None:
             continue
 
         snps = get_snps_in_regions(read, ref_seq, regions)

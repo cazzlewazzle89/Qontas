@@ -15,17 +15,26 @@ def load_reference(ref_path):
 def load_regions(bed_path):
     return list(BedTool(bed_path).merge())
 
-def get_snps_in_regions(read, ref_seq, ref_pos, bed_regions):
+def get_snps_in_regions(read, ref_seq, bed_regions):
     snps = []
-    for region in bed_regions:
-        for i, ref_i in enumerate(ref_pos):
-            if ref_i is None or not (region.start <= ref_i < region.end):
-                continue
-            ref_base = ref_seq[ref_i]
-            read_base = read.query_sequence[i]
-            if read_base != ref_base and read_base != "N" and ref_base != "N":
-                snps.append("{}{}{}".format(ref_base, ref_i + 1, read_base))
+
+    aligned_pairs = read.get_aligned_pairs(matches_only=False, with_seq=True)
+
+    for qpos, rpos, base in aligned_pairs:
+        if qpos is None or rpos is None:
+            continue
+        # Check if ref position is in any region
+        if not any(region.start <= rpos < region.end for region in bed_regions):
+            continue
+
+        read_base = base
+        ref_base = ref_seq[rpos]
+
+        if read_base != ref_base and read_base != "N" and ref_base != "N":
+            snps.append("{}{}{}".format(ref_base, rpos + 1, read_base))
+
     return snps
+
 
 def main():
     parser = argparse.ArgumentParser(description = "Summarise SNP combinations in ONT reads within BED regions")

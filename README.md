@@ -9,27 +9,29 @@ The aim of this tool is to take amplicon sequencing reads and generate a table o
 
 Input:
 1. Sequencing reads in FASTQ format (can be gzipped)
-2. Reference sequence of the target region in FASTA format.  
+2. Reference sequence of the target region in FASTA format.
+3. BED file defining regions in which to call variants  
 
 Output:   
-1. `basename_clusters.txt` - three column TSV file listing, for unique sequence, the name, count, and relative abundance
-2. `basename_sequences.fasta` - multiFASTA file containing the sequence of each unique sequence named in `basename_clusters.txt`
+`basename_variants.txt` - three column TSV file listing, for unique combination of variants, the variants, count, and relative abundance
 
 ## SETUP  
 
-Create conda environment
-```bash
-conda create -n qontas -c bioconda minimap2 phylopandas pysam seqiolib seqkit vsearch -y
-```
-
 Clone repo and make scripts executable
- ```bash
+```bash
 git clone https://github.com/cazzlewazzle89/Qontas.git
 
 chmod +x Qontas/*
 ```
 
-Add directory (eg. `/home/cwwalsh/Software/Qontas`) to your path  
+Create conda environment
+```bash
+conda create -n qontas -c bioconmamba env create -f qontas.yml
+```
+
+```
+
+Add dirsectory (eg. `/home/cwwalsh/Software/Qontas`) to your path  
 Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/)   
 
 ## USAGE  

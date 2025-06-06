@@ -42,6 +42,10 @@ def main():
     parser.add_argument("-r", "--ref", required = True, help = "Reference FASTA file")
     parser.add_argument("--bed", required = True, help = "BED file with target regions")
     parser.add_argument("-o", "--output", default = "variant_summary.tsv", help = "Output file")
+    parser.add_argument("--max-snvs-per-group", type=int, default=None,
+                        help="Exclude variant groups with more than this many SNVs (optional)")
+    parser.add_argument("--min-frequency", type=int, default=None,
+                        help="Exclude variant groups observed fewer than this many times (optional)")
 
     args = parser.parse_args()
 
@@ -56,16 +60,6 @@ def main():
         if read.is_unmapped:
             continue
 
-        # Get aligned reference positions
-        ref_pos = read.get_reference_positions(full_length=True)
-        seq = read.query_sequence
-
-        if read.is_reverse:
-            seq = str(Seq(seq).reverse_complement())
-            ref_pos = ref_pos[::-1]
-
-        read.query_sequence = seq  
-
         snps = get_snps_in_regions(read, ref_seq, regions)
 
         key = ",".join(sorted(snps)) if snps else "ref"
@@ -75,7 +69,14 @@ def main():
 
     with open(args.output, "w") as out:
         for var, count in sorted(variant_counts.items(), key=lambda x: -x[1]):
+            if args.max_snvs_per_group is not None and var != "ref":
+                snv_count = var.count(",") + 1  # count number of SNVs in group
+                if snv_count > args.max_snvs_per_group:
+                    continue
+            if args.min_frequency is not None and count < args.min_frequency:
+                continue
             out.write("{}\t{}\n".format(var, count))
+
 
 
 if __name__ == "__main__":

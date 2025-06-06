@@ -70,7 +70,7 @@ def main():
 
     with open(args.output, "w") as out:
         for var, count in sorted(variant_counts.items(), key=lambda x: -x[1]):
-            out.write(f"{var}\t{count}\n")
+            out.write("{}\t{}\n".format(var, count))
 
 
 if __name__ == "__main__":

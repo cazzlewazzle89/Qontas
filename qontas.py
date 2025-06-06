@@ -32,7 +32,6 @@ def main():
     parser.add_argument("-b", "--bam", required = True, help = "Input BAM file (sorted and indexed)")
     parser.add_argument("-r", "--ref", required = True, help = "Reference FASTA file")
     parser.add_argument("--bed", required = True, help = "BED file with target regions")
-    parser.add_argument("--max-snps", type = int, default = 3, help = "Max allowed SNPs in BED regions (default: 3)")
     parser.add_argument("-o", "--output", default = "variant_summary.tsv", help = "Output file")
 
     args = parser.parse_args()
@@ -59,9 +58,6 @@ def main():
         read.query_sequence = seq  
 
         snps = get_snps_in_regions(read, ref_seq, ref_pos, regions)
-
-        if len(snps) > args.max_snps:
-            continue
 
         key = ",".join(sorted(snps)) if snps else "ref"
         variant_counts[key] += 1

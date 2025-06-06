@@ -66,7 +66,7 @@ def main():
 
         read.query_sequence = seq  
 
-        snps = get_snps_in_regions(read, ref_seq, ref_pos, regions)
+        snps = get_snps_in_regions(read, ref_seq, regions)
 
         key = ",".join(sorted(snps)) if snps else "ref"
         variant_counts[key] += 1

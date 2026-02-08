@@ -19,19 +19,19 @@ Output:
 
 Clone repo and make scripts executable
 ```bash
-git clone https://github.com/cazzlewazzle89/Qontas.git
+git clone https://github.com/cazzlewazzle89/Qontas.git ~/Software/QONTAS
 
-chmod +x Qontas/*
+chmod +x QONTAS/*
 ```
 
 Create conda environment
 ```bash
-conda create -n qontas -c bioconmamba env create -f qontas.yml
+mamba create -n qontas bioconda::minimap2 bioconda::samtools bioconda::vsearch bioconda::seqkit conda-forge::pandas conda-forge::biopython
 ```
 
 ```
 
-Add dirsectory (eg. `/home/cwwalsh/Software/Qontas`) to your path  
+Add directory (eg. `~/Software/QONTAS`) to your path  
 Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/)   
 
 ## USAGE  

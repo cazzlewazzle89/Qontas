@@ -36,7 +36,7 @@ minimap2 \
         sort | samtools \
             view \
             -b \
-            -F 4 > "$BASENAME".bam
+            -F 2308 > "$BASENAME".bam
 
 samtools index "$BASENAME".bam
 
@@ -47,7 +47,6 @@ write_forward_reads.py \
 vsearch \
     --derep_fulllength "$BASENAME".fasta \
     --output "$BASENAME"_derep.fasta \
-    --threads "$THREADS" \
     --uc "$BASENAME"_derep.txt
 
 make_feature_table.py \

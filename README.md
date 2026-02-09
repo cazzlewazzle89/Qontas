@@ -10,7 +10,6 @@ The aim of this tool is to take amplicon sequencing reads and generate a table o
 Input:
 1. Sequencing reads in FASTQ format (can be gzipped)
 2. Reference sequence of the target region in FASTA format.
-3. BED file defining regions in which to call variants  
 
 Output:   
 `basename_variants.txt` - three column TSV file listing, for unique combination of variants, the variants, count, and relative abundance
@@ -26,7 +25,7 @@ chmod +x QONTAS/*
 
 Create conda environment
 ```bash
-mamba create -n qontas bioconda::minimap2 bioconda::samtools bioconda::vsearch bioconda::seqkit conda-forge::pandas conda-forge::biopython
+mamba create -n qontas bioconda::minimap2 bioconda::samtools bioconda::vsearch bioconda::seqkit bioconda::pysam conda-forge::pandas conda-forge::biopython
 ```
 
 ```

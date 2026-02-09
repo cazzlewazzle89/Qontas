@@ -21,24 +21,7 @@ def run_cmd(cmd, description):
         print(f"FAILED COMMAND: {cmd}")
         sys.exit(1)
 
-# --- 1. Filter FASTQ ---
-def filter_fastq(input_file, output_file, min_len, max_len):
-    print(f"--- Filtering FASTQ (Min: {min_len}, Max: {max_len}) ---")
-    count_in = 0
-    count_out = 0
-    
-    open_func = gzip.open if input_file.endswith(".gz") else open
-    
-    with open_func(input_file, "rt") as handle_in, gzip.open(output_file, "wt") as handle_out:
-        for record in SeqIO.parse(handle_in, "fastq"):
-            count_in += 1
-            if min_len <= len(record) <= max_len:
-                SeqIO.write(record, handle_out, "fastq")
-                count_out += 1
-                
-    print(f"Processed {count_in} reads. Kept {count_out} reads.")
-
-# --- 2. Extract & Trim Reads (Hard Clipping + Reorientation) ---
+# --- 1. Extract & Trim Reads (Hard Clipping + Reorientation) ---
 def extract_and_trim_reads(input_bam, output_fasta, region_bed=None):
     print("--- Extracting and Trimming Reads ---")
     
@@ -46,12 +29,11 @@ def extract_and_trim_reads(input_bam, output_fasta, region_bed=None):
     if region_bed:
         try:
             with open(region_bed, 'r') as f:
-                # BED is usually 0-based start, 1-based end (half-open)
-                # Ensure your BED file is strictly tab-delimited
+                # Assuming simple BED: Chrom Start End
                 parts = f.readline().strip().split('\t')
                 ref_start = int(parts[1])
                 ref_end = int(parts[2])
-            print(f"Trimming to Target Region: {ref_start}-{ref_end}")
+            print(f"    Trimming to Target Region: {ref_start}-{ref_end}")
         except Exception as e:
             print(f"Error parsing BED file: {e}")
             sys.exit(1)
@@ -75,7 +57,7 @@ def extract_and_trim_reads(input_bam, output_fasta, region_bed=None):
             q_start = None
             q_end = None
             
-            # Use CIGAR to find exact read bases matching reference coordinates
+            # Robust CIGAR mapping
             aligned_pairs = read.get_aligned_pairs(matches_only=True)
             for q_pos, r_pos in aligned_pairs:
                 if q_start is None and r_pos >= ref_start:
@@ -87,11 +69,11 @@ def extract_and_trim_reads(input_bam, output_fasta, region_bed=None):
                 start_idx = min(q_start, q_end)
                 end_idx = max(q_start, q_end)
                 
-                # HARD CLIP (Slice)
+                # Slicing
                 seq_str = read.query_sequence[start_idx:end_idx]
                 seq_obj = Seq(seq_str)
                 
-                # REORIENT (Reverse Complement if mapped to reverse strand)
+                # Reorienting
                 if read.is_reverse:
                     seq_obj = seq_obj.reverse_complement()
 
@@ -102,7 +84,7 @@ def extract_and_trim_reads(input_bam, output_fasta, region_bed=None):
                 skipped += 1
         
         else:
-            # If no region, just output full sequence, reoriented
+            # Global extraction (no trimming)
             seq_obj = Seq(read.query_sequence)
             if read.is_reverse:
                 seq_obj = seq_obj.reverse_complement()
@@ -112,11 +94,11 @@ def extract_and_trim_reads(input_bam, output_fasta, region_bed=None):
 
     bam.close()
     SeqIO.write(seq_records, output_fasta, "fasta")
-    print(f"Extracted {processed} reads. Skipped {skipped} (didn't cover region).")
+    print(f"    Extracted {processed} reads. Skipped {skipped}.")
 
-# --- 3. Make Feature Table & Extract Unique Sequences ---
+# --- 2. Make Feature Table (Corrected Logic) ---
 def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, min_abund):
-    print("--- Generating Feature Table & Filtering Sequences ---")
+    print("--- Generating Feature Table ---")
     
     # Load vsearch UC file
     try:
@@ -124,44 +106,47 @@ def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, min_abun
     except Exception:
         df = pd.read_csv(input_uc, sep="\t", header=None, error_bad_lines=False)
 
-    # Column 9 contains the Target (which is the sequence ID from derep_fasta)
-    counts = df[9].value_counts().reset_index()
-    counts.columns = ['FeatureID', 'Count']
-    
-    # Filter by Count
-    counts = counts[counts['Count'] >= min_count]
-    
-    # Filter by Abundance
-    total_reads = counts['Count'].sum()
-    if total_reads > 0:
-        counts['Abundance'] = (counts['Count'] / total_reads) * 100
-        final_df = counts[counts['Abundance'] >= min_abund]
-    else:
-        final_df = counts # Empty
+    # Filter for Cluster ('C') rows only
+    # Col 8 = Cluster ID, Col 2 = Cluster Size
+    clusters = df[df[0] == "C"][[8, 2]].copy()
+    clusters.columns = ["Cluster", "Count"]
 
-    # Write Table
-    table_file = f"{output_prefix}_table.csv"
-    final_df.to_csv(table_file, index=False)
-    print(f"Table written to {table_file} ({len(final_df)} features).")
+    # Filter by Count
+    clusters = clusters[clusters["Count"] >= min_count]
     
-    # EXTRACT UNIQUE SEQUENCES (Filtered)
-    # We read the derep_fasta and only write out sequences that appear in our final_df
-    valid_ids = set(final_df['FeatureID'].astype(str))
+    # Calculate Relative Abundance
+    total_count = clusters["Count"].sum()
+    if total_count > 0:
+        clusters["RelAbund"] = 100 * clusters["Count"] / total_count
+        # Filter by Abundance
+        clusters = clusters[clusters["RelAbund"] >= min_abund]
+    else:
+        clusters["RelAbund"] = 0.0
+
+    # Output 1: TSV Table
+    clusters_output = f"{output_prefix}_clusters.txt"
+    clusters.to_csv(clusters_output, sep="\t", index=False, header=False)
+    print(f"    Table written to {clusters_output}")
+
+    # Output 2: Readnames list
+    readnames_output = f"{output_prefix}_readnames.txt"
+    with open(readnames_output, 'w') as f:
+        for text in clusters['Cluster'].tolist():
+            f.write(str(text) + '\n')
+
+    # Output 3: Clean FASTA
+    # We load the full set of unique sequences (derep_fasta) and keep only those in our table
+    valid_ids = set(clusters['Cluster'].astype(str))
     
     final_seqs_file = f"{output_prefix}_unique_sequences.fasta"
     count_seqs = 0
     with open(final_seqs_file, "w") as out_f:
         for record in SeqIO.parse(derep_fasta, "fasta"):
-            # vsearch modifies IDs, often appending ";size=N". We match loosely or exactly.
-            # Usually record.id in biopython takes the string before the first space
-            # but vsearch output IDs look like "seq1;size=50"
-            # The UC file usually refers to the full ID "seq1;size=50"
-            
             if record.id in valid_ids:
                 SeqIO.write(record, out_f, "fasta")
                 count_seqs += 1
                 
-    print(f"Filtered Unique Sequences written to {final_seqs_file} ({count_seqs} seqs).")
+    print(f"    Filtered Unique Sequences written to {final_seqs_file} ({count_seqs} seqs).")
 
 # --- MAIN ---
 def main():
@@ -172,19 +157,24 @@ def main():
     parser.add_argument("-o", "--outdir", required=True, help="Output Directory")
     parser.add_argument("--minlen", type=int, default=600)
     parser.add_argument("--maxlen", type=int, default=650)
-    parser.add_argument("--mincount", type=int, default=1)
-    parser.add_argument("--minabund", type=float, default=0)
+    parser.add_argument("--mincount", type=int, default=10)
+    parser.add_argument("--minabund", type=float, default=1.0)
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("--region", help="Optional BED file for trimming sequences")
 
     args = parser.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     
-    # 1. Filter
+    # 1. Filter FASTQ (Using SeqKit for multithreading speed)
     filt_fastq = os.path.join(args.outdir, f"{args.base}_filtered.fastq.gz")
-    filter_fastq(args.input, filt_fastq, args.minlen, args.maxlen)
+    
+    # Check if seqkit is installed/available
+    seqkit_cmd = (f"seqkit seq -j {args.threads} "
+                  f"-m {args.minlen} -M {args.maxlen} "
+                  f"{args.input} -o {filt_fastq}")
+    run_cmd(seqkit_cmd, "Filtering FASTQ with SeqKit")
 
-    # 2. Map
+    # 2. Map and Sort
     full_bam = os.path.join(args.outdir, f"{args.base}_full.bam")
     map_cmd = (f"minimap2 -a -x map-ont -t {args.threads} {args.ref} {filt_fastq} | "
                f"samtools view -u -F 2308 | "
@@ -207,9 +197,10 @@ def main():
     make_feature_table(derep_txt, derep_fasta, out_prefix, args.mincount, args.minabund)
 
     # Cleanup
+    print("\n--- Cleaning up ---")
     if os.path.exists(full_bam): os.remove(full_bam)
     if os.path.exists(full_bam + ".bai"): os.remove(full_bam + ".bai")
-    if os.path.exists(filt_fastq): os.remove(filt_fastq)
+    # if os.path.exists(filt_fastq): os.remove(filt_fastq) # Keep if you want to inspect filtered reads
 
     print(f"\nSUCCESS: Pipeline complete. Results in {args.outdir}")
 

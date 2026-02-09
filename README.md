@@ -28,14 +28,12 @@ Create conda environment
 mamba create -n qontas bioconda::minimap2 bioconda::samtools bioconda::vsearch bioconda::seqkit bioconda::pysam conda-forge::pandas conda-forge::biopython
 ```
 
-```
-
 Add directory (eg. `~/Software/QONTAS`) to your path  
 Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/)   
 
 ## USAGE  
 
-Current full pipeline is run using the script `qontas.sh` with 8 positional parameters.  
+Current full pipeline is run using the script `qontas.sh` with 9 positional parameters.  
 Namely:  
 1. Input FASTQ
 2. Input reference FASTA

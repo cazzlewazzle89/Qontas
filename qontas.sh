@@ -24,6 +24,8 @@ echo ''
 
 sleep 10
 
+mkdir -p "$OUTDIR"
+
 filter_fastq.py \
     --input_file "$INPUTREADS" \
     --output_file "$OUTDIR"/"$BASENAME"_filtered.fastq.gz \

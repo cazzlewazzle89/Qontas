@@ -12,15 +12,15 @@ FEAT_MINABUND=$8
 THREADS=$9
 REGION=${10}
 
-echo 'Input FASTQ:' $INPUTREADS
-echo 'Reference FASTA:' $REFERENCE
-echo 'Output basename:' $BASENAME
-echo 'Output directory:' $OUTDIR
-echo 'Min. FASTQ read length:' $FILT_MINLEN
-echo 'Max. FASTQ read length:' $FILT_MAXLEN
-echo 'Min. feature count:' $FEAT_MINCOUNT
-echo 'Min. feature abundance:' $FEAT_MINCOUNT
-echo 'Threads:' $THREADS
+echo 'Input FASTQ is' $1
+echo 'Reference FASTA is' $2
+echo 'Output basename is' $3
+echo 'Output directory is' $4
+echo 'FASTQ reads shorter than' $5 'bp will be discarded'
+echo 'FASTQ reads longer than' $6 'bp will be discarded'
+echo 'Sequences observed fewer than' $7 'times per sample will be discarded BEFORE calculating relative abundance'
+echo 'Sequences with per-sample relative abundance below' $8 'will be discarded'
+echo 'Using' $9 'threads for minimap2 mapping'
 
 if [ -n "$REGION" ]; then
     echo "Extracting regions defined in: $REGION"
@@ -79,7 +79,8 @@ make_feature_table.py \
     --min_count "$FEAT_MINCOUNT" \
     --min_abundance "$FEAT_MINABUND"
 
-seqkit grep -f "$OUTDIR"/"$BASENAME"_readnames.txt "$OUTDIR"/"$BASENAME".fasta > "$OUTDIR"/"$BASENAME"_sequences.fasta
+seqkit grep -f "$OUTDIR"/"$BASENAME"_readnames.txt \
+    "$OUTDIR"/"$BASENAME".fasta > "$OUTDIR"/"$BASENAME"_sequences.fasta
 
 rm -f "$OUTDIR"/"$BASENAME"_filtered.fastq.gz \
     "$OUTDIR"/"$BASENAME"_full.bam "$OUTDIR"/"$BASENAME"_full.bam.bai \

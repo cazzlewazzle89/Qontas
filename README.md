@@ -10,10 +10,10 @@ The aim of this tool is to take amplicon sequencing reads and generate a table o
 Input:
 1. Sequencing reads in FASTQ format (can be gzipped)
 2. Reference sequence of the target region in FASTA format.
-3. Optional BED file defining region of interest.
+3. (Optional) BED file defining region of interest.
 
 Output:   
-`basename_clusters.txt` - three column TSV file listing, for each unique sequence: its name, count, and relative abundance
+`basename_clusters.txt` - three column TSV file listing, for each unique sequence: its name, count, and relative abundance  
 `basename_sequence.fasta` - multiFASTA containing each unique sequence in the same order as the clusters file
 
 ## SETUP  
@@ -46,7 +46,7 @@ Namely:
 7. Amount of times a sequence must be observed per sample to be retained for relative abundance calculation (recommended to set this >1 to remove singletons [highly likely to be PCR artifacts or sequencing errors])
 8. Mimimum relative abundance as a percentage (eg. 2 or 0.1) for a sequence to be reported 
 9. Number of threads to use for minimap2 mapping  
-10. BED file defining target region
+10. (optional) BED file defining target region
 
 eg. `qontas.sh sample.fastq.gz ref.fa Qontas_Out sample 600 650 10 1 12 region.bed`  
 

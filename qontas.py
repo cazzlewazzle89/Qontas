@@ -172,8 +172,8 @@ def main():
     parser.add_argument("-o", "--outdir", required=True, help="Output Directory")
     parser.add_argument("--minlen", type=int, default=600)
     parser.add_argument("--maxlen", type=int, default=650)
-    parser.add_argument("--mincount", type=int, default=10)
-    parser.add_argument("--minabund", type=float, default=1.0)
+    parser.add_argument("--mincount", type=int, default=1)
+    parser.add_argument("--minabund", type=float, default=0)
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("--region", help="Optional BED file for trimming sequences")
 

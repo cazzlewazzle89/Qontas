@@ -35,13 +35,13 @@ def parse_bed_regions(bed_file):
                 if len(parts) < 3: continue
                 
                 # Column 1: Chromosome/Contig Name (Must match FASTA header)
-                chrom = parts[0]
+                chrom = parts[0].strip()
                 start = int(parts[1])
                 end = int(parts[2])
                 
                 # Column 4: Region Name (for output filenames)
                 if len(parts) >= 4:
-                    name = parts[3]
+                    name = parts[3].strip()
                 else:
                     name = f"region_{i+1:02d}"
                     
@@ -51,17 +51,35 @@ def parse_bed_regions(bed_file):
         sys.exit(1)
     return regions
 
-# --- Helper: Get Reference Slice (Multi-Record Support) ---
+# --- Helper: Get Reference Slice (Robust Fallback) ---
 def get_reference_slice(ref_fasta, chrom_id, start, end):
-    # Iterate through FASTA to find matching ID
-    # Note: For huge references, indexing (SeqIO.index) is faster, 
-    # but for bacterial genomes, iteration is instantaneous.
-    for record in SeqIO.parse(ref_fasta, "fasta"):
-        if record.id == chrom_id:
-            return str(record.seq[start:end])
+    # 1. Load all records
+    records = list(SeqIO.parse(ref_fasta, "fasta"))
+    
+    target_record = None
+    target_id = chrom_id.strip()
+
+    # 2. Try Exact Match
+    for r in records:
+        if r.id.strip() == target_id:
+            target_record = r
+            break
             
-    print(f"WARNING: Chromosome '{chrom_id}' from BED not found in Reference FASTA.")
-    return None
+    # 3. Fallback: If Ref has only 1 sequence, use it regardless of name mismatch
+    if target_record is None and len(records) == 1:
+        # print(f"    [Info] BED ID '{target_id}' not found, but Ref has 1 sequence. Using '{records[0].id}' as fallback.")
+        target_record = records[0]
+
+    if target_record:
+        # Safety check for coordinates
+        if end > len(target_record.seq):
+            print(f"    [!] Warning: Region end ({end}) > Ref length ({len(target_record.seq)}). Truncating.")
+            end = len(target_record.seq)
+            
+        return str(target_record.seq[start:end])
+    else:
+        print(f"    [!] ERROR: Chromosome '{target_id}' not found in Ref FASTA. SNPs cannot be called.")
+        return None
 
 # --- Helper: Call SNPs & Indels ---
 def call_variants(query_seq, ref_seq):
@@ -82,8 +100,8 @@ def call_variants(query_seq, ref_seq):
     alignment = alignments[0]
     
     # alignment[0] is Ref (target), alignment[1] is Query
-    ref_aligned = alignment[0]
-    query_aligned = alignment[1]
+    ref_aligned = alignment[0][0]
+    query_aligned = alignment[0][1]
     
     variants = []
     ref_pos_counter = 0 # Tracks position in the original reference slice (1-based)
@@ -132,8 +150,8 @@ def extract_reads_for_region(input_bam, output_fasta, region_name, chrom, start,
     try:
         iter_reads = bam.fetch(contig=chrom, start=start, stop=end)
     except ValueError:
-        print(f"    Warning: Contig '{chrom}' not found in BAM header. Skipping region.")
-        return
+        # Fallback if chrom name in BAM differs from BED
+        iter_reads = bam.fetch()
 
     for read in iter_reads:
         if read.is_unmapped or read.query_sequence is None:
@@ -175,17 +193,17 @@ def extract_reads_for_region(input_bam, output_fasta, region_name, chrom, start,
 
     bam.close()
     SeqIO.write(seq_records, output_fasta, "fasta")
-    print(f"    Extracted {processed} reads. Skipped {skipped} (incomplete coverage).")
+    print(f"    Extracted {processed} reads.")
 
 # --- 3. Make Feature Table & Call Variants ---
-def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, min_abund, ref_slice=None):
+def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, ref_slice=None):
     print(f"--- Generating Feature Table for {output_prefix} ---")
     
     # Load UC
     try:
-        df = pd.read_csv(input_uc, sep="\t", header=None, on_bad_lines='skip')
+        df = pd.read_csv(input_uc, sep="\t", header=None, dtype=str, on_bad_lines='skip')
     except Exception:
-        df = pd.read_csv(input_uc, sep="\t", header=None, error_bad_lines=False)
+        df = pd.read_csv(input_uc, sep="\t", header=None, dtype=str, error_bad_lines=False)
 
     # Filter Cluster Rows
     if df.empty:
@@ -195,6 +213,9 @@ def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, min_abun
     clusters = df[df[0] == "C"][[8, 2]].copy()
     clusters.columns = ["Cluster", "Count"]
 
+    # Convert Count to Numeric
+    clusters["Count"] = pd.to_numeric(clusters["Count"])
+    
     # Filter by Count
     clusters = clusters[clusters["Count"] >= min_count]
     
@@ -212,19 +233,16 @@ def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, min_abun
         seq_dict = {r.id: str(r.seq) for r in SeqIO.parse(derep_fasta, "fasta")}
         variants = []
         for cid in clusters["Cluster"]:
-            # Handle VSEARCH IDs (e.g. "seq1;size=50")
-            # If the UC file has "seq1;size=50" but fasta keys are "seq1", we need to split.
-            # Usually strict matching works if vsearch output is consistent.
             s = seq_dict.get(str(cid))
-            
             if s:
                 variants.append(call_variants(s, ref_slice))
             else:
                 variants.append("Unknown")
         clusters["Variant"] = variants
+    else:
+        clusters["Variant"] = "NA"
     
     # Write TSV (Cluster, Variant, Count, RelAbund)
-    # Using header=True because we added "Variant" and "RelAbund" which is new info
     tsv_out = f"{output_prefix}_table.tsv"
     
     # Reorder columns
@@ -295,14 +313,8 @@ def main():
         r_start = reg['start']
         r_end = reg['end']
         
-        # Determine Prefix
-        # If BED has 1 region: Base.fasta
-        # If BED has >1 region: Base_RegionName.fasta
-        if len(regions) == 1:
-            prefix = args.base
-        else:
-            prefix = f"{args.base}_{r_name}"
-            
+        # ALWAYS suffix region name, even if there is only 1
+        prefix = f"{args.base}_{r_name}"
         region_out_base = os.path.join(args.outdir, prefix)
         
         # A. Extract
@@ -317,16 +329,14 @@ def main():
         # B. Dereplicate
         reg_derep = f"{region_out_base}_derep.fasta"
         reg_uc = f"{region_out_base}_derep.txt"
-        run_cmd(f"vsearch --derep_fulllength {reg_fasta} --output {reg_derep} --uc {reg_uc} --threads {args.threads}",
+        # Removed --threads argument here (VSEARCH derep is single-threaded)
+        run_cmd(f"vsearch --derep_fulllength {reg_fasta} --output {reg_derep} --uc {reg_uc}",
                 f"Dereplicating {r_name}")
 
         # C. Feature Table & Variants
         # Pass CHROM here so we find the right ref sequence
         ref_slice = get_reference_slice(args.ref, r_chrom, r_start, r_end)
-        if ref_slice:
-            make_feature_table(reg_uc, reg_derep, region_out_base, args.mincount, ref_slice)
-        else:
-            print(f"    [!] Could not retrieve reference slice for {r_chrom}. Skipping table generation.")
+        make_feature_table(reg_uc, reg_derep, region_out_base, args.mincount, ref_slice)
 
     # Cleanup
     print("\n--- Cleanup ---")
@@ -337,3 +347,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    

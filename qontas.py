@@ -51,252 +51,167 @@ def parse_bed_regions(bed_file, default_min, default_max):
 
 # --- Helper: Create Reference Slice File ---
 def create_ref_slice_fasta(ref_fasta_path, chrom, start, end, output_path):
-    # Load Ref (optimized for single lookups)
     records = list(SeqIO.parse(ref_fasta_path, "fasta"))
     target = None
-    
-    # Try exact match
     for r in records:
         if r.id.strip() == chrom:
             target = r
             break
-    # Fallback
     if target is None and len(records) == 1:
         target = records[0]
 
     if not target:
-        print(f"    [!] Error: Chrom '{chrom}' not found in Ref.")
         return False
         
-    # Extract Slice (0-based)
-    # Ensure we don't go out of bounds
     r_end = min(end, len(target.seq))
     slice_seq = target.seq[start:r_end]
-    
-    # Write to temp file
     rec = SeqRecord(slice_seq, id=chrom, description="slice")
     SeqIO.write(rec, output_path, "fasta")
     return True
 
 # --- Core Logic: Parse CIGAR for Variants ---
 def parse_cigar_for_variants(cigar_tuples, query_seq, ref_seq_str, ignore_edges=3):
-    ref_pos = 0 # Relative to slice start
+    ref_pos = 0 
     query_pos = 0
     variants = []
-    
-    # Ref Seq Len for Edge Check
     ref_len = len(ref_seq_str)
     
     for op, length in cigar_tuples:
-        # 7 = EQ (Match)
-        if op == 7: 
+        if op == 7: # EQ
             ref_pos += length
             query_pos += length
-            
-        # 8 = X (Mismatch / SNP)
-        elif op == 8:
+        elif op == 8: # X
             for k in range(length):
-                # Edge Check
-                if ref_pos < ignore_edges or ref_pos >= (ref_len - ignore_edges):
-                    pass # Skip
-                else:
+                if not (ref_pos < ignore_edges or ref_pos >= (ref_len - ignore_edges)):
                     r_base = ref_seq_str[ref_pos]
                     q_base = query_seq[query_pos + k]
                     variants.append(f"{r_base}{ref_pos + 1}{q_base}")
-                
                 ref_pos += 1
             query_pos += length
-            
-        # 1 = I (Insertion)
-        elif op == 1:
+        elif op == 1: # I
             if not (ref_pos < ignore_edges or ref_pos >= (ref_len - ignore_edges)):
                 inserted_bases = query_seq[query_pos : query_pos + length]
                 variants.append(f"ins{ref_pos}{inserted_bases}")
             query_pos += length
-            
-        # 2 = D (Deletion)
-        elif op == 2:
+        elif op == 2: # D
             for k in range(length):
                 if not (ref_pos < ignore_edges or ref_pos >= (ref_len - ignore_edges)):
                     variants.append(f"del{ref_pos + 1}")
                 ref_pos += 1
-
-        # 4 = S (Soft Clip)
-        elif op == 4:
+        elif op == 4: # S
             query_pos += length
-            
-        # 0 = M (Mixed - should not occur with --eqx)
-        elif op == 0:
+        elif op == 0: # M
             ref_pos += length
             query_pos += length
 
-    if not variants:
-        return "Ref"
-        
-    return ",".join(variants)
-
+    return ",".join(variants) if variants else "Ref"
 
 # --- MAIN ---
 def main():
-    parser = argparse.ArgumentParser(description="QONTAS: Hybrid VSEARCH+Minimap Amplicon Pipeline")
+    parser = argparse.ArgumentParser(description="QONTAS: HQuantification of ONT Amplicon Sequences")
     parser.add_argument("-i", "--input", required=True, help="Input FASTQ file")
     parser.add_argument("-r", "--ref", required=True, help="Reference FASTA file")
     parser.add_argument("-b", "--base", required=True, help="Output Basename")
-    parser.add_argument("-o", "--outdir", default="Qontas_Hybrid_Out", help="Output Directory")
+    parser.add_argument("-o", "--outdir", default="Qontas_Out", help="Output Directory")
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("--region", required=True, help="BED file")
-    parser.add_argument("--mincount", type=int, default=10, help="Minimum count for a unique sequence")
-    parser.add_argument("--ignore_edges", type=int, default=3, help="Ignore variants at edges")
-    
-    # Global length defaults
-    parser.add_argument("--default_minlen", type=int, default=50)
-    parser.add_argument("--default_maxlen", type=int, default=10000)
+    parser.add_argument("--mincount", type=int, default=10)
+    parser.add_argument("--ignore_edges", type=int, default=3)
+    parser.add_argument("--default_minlen", type=int, default=600)
+    parser.add_argument("--default_maxlen", type=int, default=650)
 
     args = parser.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     
     regions = parse_bed_regions(args.region, args.default_minlen, args.default_maxlen)
-    print(f"[*] Processing {len(regions)} regions.")
-
+    
     # 1. Map Everything (Global)
     full_bam = os.path.join(args.outdir, f"{args.base}_full.bam")
     if not os.path.exists(full_bam):
-        print("--- Mapping reads (Global) ---")
         map_cmd = (f"seqkit seq -m 20 {args.input} | " 
                    f"minimap2 -a -x map-ont -t {args.threads} {args.ref} - | "
                    f"samtools view -u -F 2308 | "
                    f"samtools sort -@ {args.threads} -o {full_bam}")
-        run_cmd(map_cmd, "Mapping")
-        run_cmd(f"samtools index {full_bam}", "Indexing")
-    else:
-        print("    Using existing BAM.")
+        run_cmd(map_cmd, "Initial Mapping")
+        run_cmd(f"samtools index {full_bam}", "Indexing Initial BAM")
 
-    # 2. Loop Regions
-    import pysam # Import here to ensure availability
+    import pysam
     bam = pysam.AlignmentFile(full_bam, "rb")
 
     for reg in regions:
-        chrom = reg['chrom']
-        start = reg['start']
-        end = reg['end']
-        name = reg['name']
-        min_l = reg['min_len']
-        max_l = reg['max_len']
+        chrom, name, start, end = reg['chrom'], reg['name'], reg['start'], reg['end']
+        min_l, max_l = reg['min_len'], reg['max_len']
         
-        print(f"--- Processing {name} ---")
+        print(f"--- Processing Region: {name} ---")
         prefix = f"{args.base}_{name}"
-        region_dir = os.path.join(args.outdir, prefix)
         
-        # A. Extract Reads to FASTA
-        reg_fasta = os.path.join(args.outdir, f"{prefix}.fasta")
-        
-        try:
-            iter_reads = bam.fetch(contig=chrom, start=start, stop=end)
-        except ValueError:
-            print("    [!] Chrom not in BAM.")
-            continue
-
+        # A. Extract
+        reg_fasta = os.path.join(args.outdir, f"{prefix}_temp.fasta")
         processed_count = 0
         with open(reg_fasta, 'w') as f_out:
-            for read in iter_reads:
-                if read.is_unmapped: continue
-                # Coverage & Length Check
-                if read.reference_start > start or read.reference_end < end: continue
-                if read.query_length < min_l or read.query_length > max_l: continue
-                
-                # Write to FASTA
-                # Note: No reverse complement needed, we just want the raw sequence 
-                # to feed into vsearch. Vsearch handles orientation or treats as is.
-                # Actually, standard practice is to orient them.
-                # Pysam .query_sequence IS oriented to match the reference (forward).
-                f_out.write(f">{read.query_name}\n{read.query_sequence}\n")
-                processed_count += 1
+            try:
+                for read in bam.fetch(contig=chrom, start=start, stop=end):
+                    if read.is_unmapped: continue
+                    if read.reference_start > start or read.reference_end < end: continue
+                    if read.query_length < min_l or read.query_length > max_l: continue
+                    f_out.write(f">{read.query_name}\n{read.query_sequence}\n")
+                    processed_count += 1
+            except ValueError: continue
         
         if processed_count == 0:
-            print("    No reads found.")
+            if os.path.exists(reg_fasta): os.remove(reg_fasta)
             continue
 
-        # B. Dereplicate (VSEARCH) - The Denoising Step!
+        # B. Denoise (VSEARCH)
         reg_derep = os.path.join(args.outdir, f"{prefix}_derep.fasta")
         reg_uc = os.path.join(args.outdir, f"{prefix}_derep.txt")
-        
-        # minuniquesize filters out singleton errors
-        run_cmd(f"vsearch --derep_fulllength {reg_fasta} --output {reg_derep} --uc {reg_uc} --minuniquesize {args.mincount} --sizeout",
-                f"Dereplicating {name}")
+        run_cmd(f"vsearch --derep_fulllength {reg_fasta} --output {reg_derep} --uc {reg_uc} --minuniquesize {args.mincount} --sizeout", "Denoising with VSEARCH")
 
-        # C. Map Unique Sequences to Ref Slice (Minimap2 --eqx)
-        # Create Ref Slice
+        # C. Map Unique & Index
         ref_slice_fa = os.path.join(args.outdir, f"{prefix}_ref_slice.fasta")
         if not create_ref_slice_fasta(args.ref, chrom, start, end, ref_slice_fa): continue
         
         unique_bam = os.path.join(args.outdir, f"{prefix}_unique.bam")
+        # Ensure --eqx for variant calling
         map_u_cmd = (f"minimap2 -a --eqx -x map-ont -t {args.threads} {ref_slice_fa} {reg_derep} | "
                      f"samtools view -b -o {unique_bam}")
         run_cmd(map_u_cmd, "Mapping Unique Sequences")
+        run_cmd(f"samtools index {unique_bam}", "Indexing Unique BAM") # FIXED: Added index step
         
-        # D. Parse CIGARs & Build Table
-        # Load Ref Slice String
+        # D. Parse CIGARs
         ref_slice_str = str(next(SeqIO.parse(ref_slice_fa, "fasta")).seq)
-        
-        # Parse Unique BAM
         ubam = pysam.AlignmentFile(unique_bam, "rb")
-        variant_map = {} # ClusterID -> VariantString
+        variant_map = {}
         
         for read in ubam.fetch():
-            if read.is_unmapped: 
-                variant_map[read.query_name] = "Unaligned"
-                continue
-            
-            # Note: The read name in derep fasta might have ";size=N"
-            # Vsearch usually outputs ">ID;size=N" in fasta, but ">ID" in BAM query_name?
-            # Pysam usually splits at space. Vsearch output usually has no space.
-            # We match strictly.
-            
-            # Clean ID: vsearch might append info, but usually Minimap takes the whole string.
-            # If vsearch output >uuid;size=10, minimap BAM query_name is "uuid;size=10"
-            clean_id = read.query_name.split(';')[0] # Remove size tag if needed for mapping back to UC?
-            # Actually, let's keep the map key consistent with what's in the UC file.
-            
+            if read.is_unmapped or read.is_secondary or read.is_supplementary: continue
             var_str = parse_cigar_for_variants(read.cigartuples, read.query_sequence, ref_slice_str, args.ignore_edges)
             variant_map[read.query_name] = var_str
-            # Also map the cleaned ID just in case
-            variant_map[clean_id] = var_str
-            
         ubam.close()
         
-        # E. Process UC File
+        # E. Table
         try:
-            df = pd.read_csv(reg_uc, sep="\t", header=None, dtype=str, on_bad_lines='skip')
-        except: continue
-        
-        if df.empty: continue
-        
-        # Filter Clusters
-        clusters = df[df[0] == "C"][[8, 2]].copy()
-        clusters.columns = ["Cluster", "Count"]
-        clusters["Count"] = pd.to_numeric(clusters["Count"])
-        
-        # Map Variants
-        # UC Cluster col usually matches the fasta ID.
-        clusters["Variant"] = clusters["Cluster"].map(variant_map).fillna("Unknown")
-        
-        # Aggregate by Variant (Merge identical variants that were split by VSEARCH due to length diffs etc)
-        final_df = clusters.groupby("Variant")["Count"].sum().reset_index()
-        final_df["RelAbund"] = (final_df["Count"] / final_df["Count"].sum()) * 100
-        final_df = final_df.sort_values(by="Count", ascending=False)
-        
-        # Save
-        out_tsv = os.path.join(args.outdir, f"{prefix}_variants.tsv")
-        final_df.to_csv(out_tsv, sep="\t", index=False)
-        print(f"    Saved: {out_tsv}")
-        
-        # Cleanup temps
-        for f in [ref_slice_fa, unique_bam, reg_derep, reg_uc, reg_fasta]:
+            df = pd.read_csv(reg_uc, sep="\t", header=None, dtype=str)
+            clusters = df[df[0] == "C"][[8, 2]].copy()
+            clusters.columns = ["Cluster", "Count"]
+            clusters["Count"] = pd.to_numeric(clusters["Count"])
+            clusters["Variant"] = clusters["Cluster"].map(variant_map).fillna("Filtered/Unaligned")
+            
+            final_df = clusters.groupby("Variant")["Count"].sum().reset_index()
+            final_df["RelAbund"] = (final_df["Count"] / final_df["Count"].sum()) * 100
+            final_df = final_df.sort_values(by="Count", ascending=False)
+            
+            out_tsv = os.path.join(args.outdir, f"{prefix}_variants.tsv")
+            final_df.to_csv(out_tsv, sep="\t", index=False)
+        except Exception as e:
+            print(f"Error processing table: {e}")
+
+        # Cleanup
+        for f in [ref_slice_fa, unique_bam, unique_bam+".bai", reg_derep, reg_uc, reg_fasta]:
             if os.path.exists(f): os.remove(f)
 
     bam.close()
-    print("\nSUCCESS.")
+    print(f"\nSUCCESS. Results in {args.outdir}")
 
 if __name__ == "__main__":
     main()
-    

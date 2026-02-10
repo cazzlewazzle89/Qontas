@@ -29,6 +29,17 @@ def parse_bed(bed_file):
             })
     return regs
 
+def reconcile_orientation(seq_str, ref_slice):
+    """Ensures the sequence matches the reference orientation."""
+    seq_obj = Seq(seq_str)
+    rc_obj = seq_obj.reverse_complement()
+    
+    # Simple score based on exact matches to reference
+    fwd_matches = sum(1 for a, b in zip(str(seq_obj), str(ref_slice)) if a == b)
+    rev_matches = sum(1 for a, b in zip(str(rc_obj), str(ref_slice)) if a == b)
+    
+    return str(rc_obj) if rev_matches > fwd_matches else str(seq_obj)
+
 def main():
     parser = argparse.ArgumentParser(description="QONTAS: Quantification of ONT Amplicon Sequences")
     parser.add_argument("-i", "--input", required=True)
@@ -43,8 +54,10 @@ def main():
     workdir = os.path.join(args.outdir, args.sample)
     os.makedirs(workdir, exist_ok=True)
 
+    ref_dict = SeqIO.to_dict(SeqIO.parse(args.ref, "fasta"))
     bam = os.path.join(workdir, f"{args.sample}_initial.bam")
     bam_index = bam + ".bai"
+    
     if not os.path.exists(bam):
         run_cmd(f"minimap2 -ax map-ont -t {args.threads} {args.ref} {args.input} | samtools view -u -F 2308 | samtools sort -o {bam}", "Global Alignment")
         run_cmd(f"samtools index {bam}", "Indexing")
@@ -80,13 +93,24 @@ def main():
             if os.path.exists(clipped_fa): os.remove(clipped_fa)
             continue
 
+        vsearch_fa = os.path.join(workdir, f"{region_name}_vsearch.fa")
         final_fa = os.path.join(workdir, f"{region_name}.fa")
         final_tsv = os.path.join(workdir, f"{region_name}.tsv")
         uc_file = os.path.join(workdir, f"{region_name}_derep.txt")
         
         v_cmd = (f"vsearch --derep_fulllength {clipped_fa} --strand both "
-                 f"--output {final_fa} --uc {uc_file} --minuniquesize {args.mincount} --sizeout")
-        run_cmd(v_cmd, "Clustering (Strand-Agnostic)")
+                 f"--output {vsearch_fa} --uc {uc_file} --minuniquesize {args.mincount} --sizeout")
+        run_cmd(v_cmd, "Clustering")
+
+        # --- ORIENTATION RECONCILIATION ---
+        print(f"--- Reconciling orientation for {region_name} ---")
+        ref_slice = str(ref_dict[reg['chrom']].seq[reg['start']:reg['end']+1])
+        oriented_recs = []
+        for rec in SeqIO.parse(vsearch_fa, "fasta"):
+            clean_seq = reconcile_orientation(str(rec.seq), ref_slice)
+            rec.seq = Seq(clean_seq)
+            oriented_recs.append(rec)
+        SeqIO.write(oriented_recs, final_fa, "fasta")
 
         try:
             df_uc = pd.read_csv(uc_file, sep="\t", header=None, dtype=str)
@@ -100,7 +124,8 @@ def main():
         except Exception as e:
             print(f"    [!] Table Error: {e}")
 
-        for tmp in [clipped_fa, uc_file]:
+        # Final cleanup for region
+        for tmp in [clipped_fa, uc_file, vsearch_fa]:
             if os.path.exists(tmp): os.remove(tmp)
 
     print(f"\n--- Finalizing: Removing BAM ---")

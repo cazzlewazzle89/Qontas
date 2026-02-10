@@ -10,6 +10,7 @@ import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
+from Bio.Align import PairwiseAligner
 
 # --- Helper for Shell Commands ---
 def run_cmd(cmd, description):
@@ -21,188 +22,318 @@ def run_cmd(cmd, description):
         print(f"FAILED COMMAND: {cmd}")
         sys.exit(1)
 
-# --- 1. Extract & Trim Reads (Hard Clipping + Reorientation) ---
-def extract_and_trim_reads(input_bam, output_fasta, region_bed=None):
-    print("--- Extracting and Trimming Reads ---")
-    
-    ref_start, ref_end = None, None
-    if region_bed:
-        try:
-            with open(region_bed, 'r') as f:
-                # Assuming simple BED: Chrom Start End
-                parts = f.readline().strip().split('\t')
-                ref_start = int(parts[1])
-                ref_end = int(parts[2])
-            print(f"    Trimming to Target Region: {ref_start}-{ref_end}")
-        except Exception as e:
-            print(f"Error parsing BED file: {e}")
-            sys.exit(1)
+# --- Helper: Parse BED File (Multi-Region Support) ---
+def parse_bed_regions(bed_file):
+    regions = []
+    try:
+        with open(bed_file, 'r') as f:
+            for i, line in enumerate(f):
+                line = line.strip()
+                if not line or line.startswith("#"): continue
+                
+                parts = line.split('\t')
+                if len(parts) < 3: continue
+                
+                # Column 1: Chromosome/Contig Name (Must match FASTA header)
+                chrom = parts[0]
+                start = int(parts[1])
+                end = int(parts[2])
+                
+                # Column 4: Region Name (for output filenames)
+                if len(parts) >= 4:
+                    name = parts[3]
+                else:
+                    name = f"region_{i+1:02d}"
+                    
+                regions.append({'chrom': chrom, 'name': name, 'start': start, 'end': end})
+    except Exception as e:
+        print(f"Error parsing BED file: {e}")
+        sys.exit(1)
+    return regions
 
+# --- Helper: Get Reference Slice (Multi-Record Support) ---
+def get_reference_slice(ref_fasta, chrom_id, start, end):
+    # Iterate through FASTA to find matching ID
+    # Note: For huge references, indexing (SeqIO.index) is faster, 
+    # but for bacterial genomes, iteration is instantaneous.
+    for record in SeqIO.parse(ref_fasta, "fasta"):
+        if record.id == chrom_id:
+            return str(record.seq[start:end])
+            
+    print(f"WARNING: Chromosome '{chrom_id}' from BED not found in Reference FASTA.")
+    return None
+
+# --- Helper: Call SNPs & Indels ---
+def call_variants(query_seq, ref_seq):
+    if query_seq == ref_seq:
+        return "Ref"
+    
+    # Configure Aligner (Favors SNPs over Gaps)
+    aligner = PairwiseAligner()
+    aligner.mode = 'global'
+    aligner.match_score = 5
+    aligner.mismatch_score = -4
+    aligner.open_gap_score = -10  # Heavy penalty to prevent spurious gaps
+    aligner.extend_gap_score = -1
+    
+    alignments = aligner.align(ref_seq, query_seq)
+    if not alignments:
+        return "Unaligned"
+    alignment = alignments[0]
+    
+    # alignment[0] is Ref (target), alignment[1] is Query
+    ref_aligned = alignment[0]
+    query_aligned = alignment[1]
+    
+    variants = []
+    ref_pos_counter = 0 # Tracks position in the original reference slice (1-based)
+    
+    for r_char, q_char in zip(ref_aligned, query_aligned):
+        
+        # Case 1: Insertion (Gap in Ref)
+        if r_char == '-':
+            # Insertions happen *after* the current ref base
+            variants.append(f"ins{ref_pos_counter}{q_char}")
+            continue
+            
+        # We only advance ref counter if we have a real ref base
+        ref_pos_counter += 1
+        
+        # Case 2: Deletion (Gap in Query)
+        if q_char == '-':
+            variants.append(f"del{ref_pos_counter}")
+            continue
+            
+        # Case 3: Substitution (SNP)
+        if r_char != q_char:
+            variants.append(f"{r_char}{ref_pos_counter}{q_char}")
+
+    if not variants:
+        return "Ref" 
+        
+    return ",".join(variants)
+
+# --- 1. Filter FASTQ (Using SeqKit) ---
+def filter_fastq_seqkit(input_file, output_file, min_len, max_len, threads):
+    print(f"--- Filtering FASTQ (Min: {min_len}, Max: {max_len}) ---")
+    cmd = (f"seqkit seq -j {threads} -m {min_len} -M {max_len} {input_file} -o {output_file}")
+    run_cmd(cmd, "SeqKit Filtering")
+
+# --- 2. Extract & Trim Reads (BAM Index Optimized) ---
+def extract_reads_for_region(input_bam, output_fasta, region_name, chrom, start, end):
+    print(f"--- Extracting Region: {region_name} ({chrom}:{start}-{end}) ---")
+    
     bam = pysam.AlignmentFile(input_bam, "rb")
     seq_records = []
     processed = 0
     skipped = 0
 
-    for read in bam.fetch():
+    # Fetch ONLY reads overlapping this region (Requires Indexed BAM)
+    try:
+        iter_reads = bam.fetch(contig=chrom, start=start, stop=end)
+    except ValueError:
+        print(f"    Warning: Contig '{chrom}' not found in BAM header. Skipping region.")
+        return
+
+    for read in iter_reads:
         if read.is_unmapped or read.query_sequence is None:
             continue
 
-        # REGION FILTERING
-        if ref_start is not None and ref_end is not None:
-            # Skip if read doesn't FULLY cover region
-            if read.reference_start > ref_start or read.reference_end < ref_end:
-                skipped += 1
-                continue
+        # Skip if read doesn't FULLY cover region (Strict Mode)
+        if read.reference_start > start or read.reference_end < end:
+            skipped += 1
+            continue
 
-            q_start = None
-            q_end = None
-            
-            # Robust CIGAR mapping
-            aligned_pairs = read.get_aligned_pairs(matches_only=True)
-            for q_pos, r_pos in aligned_pairs:
-                if q_start is None and r_pos >= ref_start:
-                    q_start = q_pos
-                if r_pos <= ref_end:
-                    q_end = q_pos
-
-            if q_start is not None and q_end is not None:
-                start_idx = min(q_start, q_end)
-                end_idx = max(q_start, q_end)
-                
-                # Slicing
-                seq_str = read.query_sequence[start_idx:end_idx]
-                seq_obj = Seq(seq_str)
-                
-                # Reorienting
-                if read.is_reverse:
-                    seq_obj = seq_obj.reverse_complement()
-
-                record = SeqRecord(seq_obj, id=read.query_name, description="")
-                seq_records.append(record)
-                processed += 1
-            else:
-                skipped += 1
+        q_start = None
+        q_end = None
         
-        else:
-            # Global extraction (no trimming)
-            seq_obj = Seq(read.query_sequence)
+        # Robust CIGAR mapping
+        aligned_pairs = read.get_aligned_pairs(matches_only=True)
+        for q_pos, r_pos in aligned_pairs:
+            if q_start is None and r_pos >= start:
+                q_start = q_pos
+            if r_pos <= end:
+                q_end = q_pos
+
+        if q_start is not None and q_end is not None:
+            s_idx = min(q_start, q_end)
+            e_idx = max(q_start, q_end)
+            
+            # Slice
+            seq_str = read.query_sequence[s_idx:e_idx]
+            seq_obj = Seq(seq_str)
+            
+            # Reorient
             if read.is_reverse:
                 seq_obj = seq_obj.reverse_complement()
-            record = SeqRecord(seq_obj, id=read.query_name, description="")
+
+            record = SeqRecord(seq_obj, id=read.query_name, description=f"region={region_name}")
             seq_records.append(record)
             processed += 1
+        else:
+            skipped += 1
 
     bam.close()
     SeqIO.write(seq_records, output_fasta, "fasta")
-    print(f"    Extracted {processed} reads. Skipped {skipped}.")
+    print(f"    Extracted {processed} reads. Skipped {skipped} (incomplete coverage).")
 
-# --- 2. Make Feature Table (Corrected Logic) ---
-def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, min_abund):
-    print("--- Generating Feature Table ---")
+# --- 3. Make Feature Table & Call Variants ---
+def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, min_abund, ref_slice=None):
+    print(f"--- Generating Feature Table for {output_prefix} ---")
     
-    # Load vsearch UC file
+    # Load UC
     try:
         df = pd.read_csv(input_uc, sep="\t", header=None, on_bad_lines='skip')
     except Exception:
         df = pd.read_csv(input_uc, sep="\t", header=None, error_bad_lines=False)
 
-    # Filter for Cluster ('C') rows only
-    # Col 8 = Cluster ID, Col 2 = Cluster Size
+    # Filter Cluster Rows
+    if df.empty:
+        print("    Warning: UC file is empty. No features found.")
+        return
+
     clusters = df[df[0] == "C"][[8, 2]].copy()
     clusters.columns = ["Cluster", "Count"]
 
     # Filter by Count
     clusters = clusters[clusters["Count"] >= min_count]
     
-    # Calculate Relative Abundance
-    total_count = clusters["Count"].sum()
-    if total_count > 0:
-        clusters["RelAbund"] = 100 * clusters["Count"] / total_count
-        # Filter by Abundance
-        clusters = clusters[clusters["RelAbund"] >= min_abund]
+    # Rel Abundance
+    total = clusters["Count"].sum()
+    if total > 0:
+        clusters["RelAbund"] = 100 * clusters["Count"] / total
     else:
         clusters["RelAbund"] = 0.0
 
-    # Output 1: TSV Table
-    clusters_output = f"{output_prefix}_clusters.txt"
-    clusters.to_csv(clusters_output, sep="\t", index=False, header=False)
-    print(f"    Table written to {clusters_output}")
-
-    # Output 2: Readnames list
-    readnames_output = f"{output_prefix}_readnames.txt"
-    with open(readnames_output, 'w') as f:
-        for text in clusters['Cluster'].tolist():
-            f.write(str(text) + '\n')
-
-    # Output 3: Clean FASTA
-    # We load the full set of unique sequences (derep_fasta) and keep only those in our table
-    valid_ids = set(clusters['Cluster'].astype(str))
+    # Call Variants
+    if ref_slice:
+        print("    Calling variants (SNPs/Indels)...")
+        # Load sequences into dict for fast lookup
+        seq_dict = {r.id: str(r.seq) for r in SeqIO.parse(derep_fasta, "fasta")}
+        variants = []
+        for cid in clusters["Cluster"]:
+            # Handle VSEARCH IDs (e.g. "seq1;size=50")
+            # If the UC file has "seq1;size=50" but fasta keys are "seq1", we need to split.
+            # Usually strict matching works if vsearch output is consistent.
+            s = seq_dict.get(str(cid))
+            
+            if s:
+                variants.append(call_variants(s, ref_slice))
+            else:
+                variants.append("Unknown")
+        clusters["Variant"] = variants
     
-    final_seqs_file = f"{output_prefix}_unique_sequences.fasta"
-    count_seqs = 0
-    with open(final_seqs_file, "w") as out_f:
-        for record in SeqIO.parse(derep_fasta, "fasta"):
-            if record.id in valid_ids:
-                SeqIO.write(record, out_f, "fasta")
-                count_seqs += 1
-                
-    print(f"    Filtered Unique Sequences written to {final_seqs_file} ({count_seqs} seqs).")
+    # Write TSV (Cluster, Variant, Count, RelAbund)
+    # Using header=True because we added "Variant" and "RelAbund" which is new info
+    tsv_out = f"{output_prefix}_table.tsv"
+    
+    # Reorder columns
+    cols = ["Cluster", "Variant", "Count", "RelAbund"] if "Variant" in clusters.columns else ["Cluster", "Count", "RelAbund"]
+    clusters[cols].to_csv(tsv_out, sep="\t", index=False)
+    print(f"    Table written to {tsv_out}")
+
+    # Write Unique Sequences
+    valid_ids = set(clusters['Cluster'].astype(str))
+    seqs_out = f"{output_prefix}_unique_sequences.fasta"
+    count = 0
+    with open(seqs_out, "w") as out_f:
+        for r in SeqIO.parse(derep_fasta, "fasta"):
+            if r.id in valid_ids:
+                if ref_slice and "Variant" in clusters.columns:
+                    try:
+                        var = clusters.loc[clusters['Cluster'] == r.id, 'Variant'].values[0]
+                        r.description += f" variant={var}"
+                    except IndexError:
+                        pass
+                SeqIO.write(r, out_f, "fasta")
+                count += 1
+    print(f"    Unique sequences: {seqs_out} ({count})")
+
 
 # --- MAIN ---
 def main():
-    parser = argparse.ArgumentParser(description="QONTAS: Microbiome Amplicon Pipeline")
+    parser = argparse.ArgumentParser(description="QONTAS: Multi-Region Amplicon Pipeline")
     parser.add_argument("-i", "--input", required=True, help="Input FASTQ file")
     parser.add_argument("-r", "--ref", required=True, help="Reference FASTA file")
     parser.add_argument("-b", "--base", required=True, help="Output Basename")
     parser.add_argument("-o", "--outdir", required=True, help="Output Directory")
-    parser.add_argument("--minlen", type=int, default=600)
-    parser.add_argument("--maxlen", type=int, default=650)
-    parser.add_argument("--mincount", type=int, default=10)
-    parser.add_argument("--minabund", type=float, default=1.0)
-    parser.add_argument("-t", "--threads", type=int, default=4)
-    parser.add_argument("--region", help="Optional BED file for trimming sequences")
+    parser.add_argument("--minlen", type=int, default=600, help="FASTQ reads shorter than this will be discarded [600]")
+    parser.add_argument("--maxlen", type=int, default=650, help="FASTQ reads longer than this will be discarded [650]")
+    parser.add_argument("--mincount", type=int, default=10, help="Unique seqeunces must be present this number of times to be reported [10]")
+    parser.add_argument("-t", "--threads", type=int, default=4, help="Number of threads to use [4]")
+    parser.add_argument("--region", required=True, help="BED file (Chrom Start End [Name])")
 
     args = parser.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     
-    # 1. Filter FASTQ (Using SeqKit for multithreading speed)
+    # 1. Parse Regions
+    regions = parse_bed_regions(args.region)
+    print(f"[*] Found {len(regions)} regions in BED file.")
+
+    # 2. Filter FASTQ (Once)
     filt_fastq = os.path.join(args.outdir, f"{args.base}_filtered.fastq.gz")
-    
-    # Check if seqkit is installed/available
-    seqkit_cmd = (f"seqkit seq -j {args.threads} "
-                  f"-m {args.minlen} -M {args.maxlen} "
-                  f"{args.input} -o {filt_fastq}")
-    run_cmd(seqkit_cmd, "Filtering FASTQ with SeqKit")
+    if not os.path.exists(filt_fastq):
+        filter_fastq_seqkit(args.input, filt_fastq, args.minlen, args.maxlen, args.threads)
+    else:
+        print("    Filtered FASTQ exists, skipping step.")
 
-    # 2. Map and Sort
+    # 3. Map (Once)
     full_bam = os.path.join(args.outdir, f"{args.base}_full.bam")
-    map_cmd = (f"minimap2 -a -x map-ont -t {args.threads} {args.ref} {filt_fastq} | "
-               f"samtools view -u -F 2308 | "
-               f"samtools sort -@ {args.threads} -o {full_bam}")
-    run_cmd(map_cmd, "Mapping with Minimap2")
-    run_cmd(f"samtools index {full_bam}", "Indexing BAM")
+    if not os.path.exists(full_bam):
+        map_cmd = (f"minimap2 -a -x map-ont -t {args.threads} {args.ref} {filt_fastq} | "
+                   f"samtools view -u -F 2308 | "
+                   f"samtools sort -@ {args.threads} -o {full_bam}")
+        run_cmd(map_cmd, "Mapping")
+        run_cmd(f"samtools index {full_bam}", "Indexing")
+    else:
+        print("    BAM file exists, skipping mapping.")
 
-    # 3. Extract & Trim
-    final_fasta = os.path.join(args.outdir, f"{args.base}.fasta")
-    extract_and_trim_reads(full_bam, final_fasta, args.region)
+    # 4. Loop per Region
+    for reg in regions:
+        r_chrom = reg['chrom']
+        r_name = reg['name']
+        r_start = reg['start']
+        r_end = reg['end']
+        
+        # Determine Prefix
+        # If BED has 1 region: Base.fasta
+        # If BED has >1 region: Base_RegionName.fasta
+        if len(regions) == 1:
+            prefix = args.base
+        else:
+            prefix = f"{args.base}_{r_name}"
+            
+        region_out_base = os.path.join(args.outdir, prefix)
+        
+        # A. Extract
+        reg_fasta = f"{region_out_base}.fasta"
+        # Pass CHROM here so we can use bam.fetch() for speed
+        extract_reads_for_region(full_bam, reg_fasta, r_name, r_chrom, r_start, r_end)
+        
+        if os.path.getsize(reg_fasta) == 0:
+            print(f"    [!] No reads found for {r_name}. Skipping.")
+            continue
 
-    # 4. Dereplicate
-    derep_fasta = os.path.join(args.outdir, f"{args.base}_derep.fasta")
-    derep_txt = os.path.join(args.outdir, f"{args.base}_derep.txt")
-    run_cmd(f"vsearch --derep_fulllength {final_fasta} --output {derep_fasta} --threads {args.threads} --uc {derep_txt}",
-            "Dereplicating with VSEARCH")
+        # B. Dereplicate
+        reg_derep = f"{region_out_base}_derep.fasta"
+        reg_uc = f"{region_out_base}_derep.txt"
+        run_cmd(f"vsearch --derep_fulllength {reg_fasta} --output {reg_derep} --uc {reg_uc} --threads {args.threads}",
+                f"Dereplicating {r_name}")
 
-    # 5. Feature Table & Unique Seqs
-    out_prefix = os.path.join(args.outdir, args.base)
-    make_feature_table(derep_txt, derep_fasta, out_prefix, args.mincount, args.minabund)
+        # C. Feature Table & Variants
+        # Pass CHROM here so we find the right ref sequence
+        ref_slice = get_reference_slice(args.ref, r_chrom, r_start, r_end)
+        if ref_slice:
+            make_feature_table(reg_uc, reg_derep, region_out_base, args.mincount, ref_slice)
+        else:
+            print(f"    [!] Could not retrieve reference slice for {r_chrom}. Skipping table generation.")
 
     # Cleanup
-    print("\n--- Cleaning up ---")
+    print("\n--- Cleanup ---")
     if os.path.exists(full_bam): os.remove(full_bam)
-    if os.path.exists(full_bam + ".bai"): os.remove(full_bam + ".bai")
-    # if os.path.exists(filt_fastq): os.remove(filt_fastq) # Keep if you want to inspect filtered reads
-
-    print(f"\nSUCCESS: Pipeline complete. Results in {args.outdir}")
+    if os.path.exists(full_bam+".bai"): os.remove(full_bam+".bai")
+    
+    print(f"\nSUCCESS. Results in {args.outdir}")
 
 if __name__ == "__main__":
     main()

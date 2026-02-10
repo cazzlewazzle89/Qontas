@@ -167,16 +167,20 @@ def main():
         reg_uc = os.path.join(args.outdir, f"{prefix}_derep.txt")
         run_cmd(f"vsearch --derep_fulllength {reg_fasta} --output {reg_derep} --uc {reg_uc} --minuniquesize {args.mincount} --sizeout", "Denoising with VSEARCH")
 
-        # C. Map Unique & Index
+        # C. Map Unique, Sort & Index
         ref_slice_fa = os.path.join(args.outdir, f"{prefix}_ref_slice.fasta")
         if not create_ref_slice_fasta(args.ref, chrom, start, end, ref_slice_fa): continue
         
+        unique_bam_unsorted = os.path.join(args.outdir, f"{prefix}_unique_unsorted.bam")
         unique_bam = os.path.join(args.outdir, f"{prefix}_unique.bam")
-        # Ensure --eqx for variant calling
+        
+        # 1. Map (with --eqx)
+        # 2. Sort (required for indexing)
         map_u_cmd = (f"minimap2 -a --eqx -x map-ont -t {args.threads} {ref_slice_fa} {reg_derep} | "
-                     f"samtools view -b -o {unique_bam}")
-        run_cmd(map_u_cmd, "Mapping Unique Sequences")
-        run_cmd(f"samtools index {unique_bam}", "Indexing Unique BAM") # FIXED: Added index step
+                     f"samtools sort -@ {args.threads} -o {unique_bam}")
+        
+        run_cmd(map_u_cmd, "Mapping and Sorting Unique Sequences")
+        run_cmd(f"samtools index {unique_bam}", "Indexing Unique BAM")
         
         # D. Parse CIGARs
         ref_slice_str = str(next(SeqIO.parse(ref_slice_fa, "fasta")).seq)

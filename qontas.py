@@ -22,41 +22,14 @@ def parse_bed(bed_file):
             regs.append({'chrom': p[0], 'start': int(p[1]), 'end': int(p[2]), 'name': p[3]})
     return regs
 
-def get_variants(read, ref_seq, ignore=5):
-    if not read.cigartuples or read.query_sequence is None: return "Unaligned"
-    ref_pos, q_pos, vars = 0, 0, []
-    ref_len = len(ref_seq)
-    for op, length in read.cigartuples:
-        if op == 7: # Match (=)
-            ref_pos += length; q_pos += length
-        elif op == 8: # Mismatch (X)
-            for k in range(length):
-                if ignore <= ref_pos < (ref_len - ignore):
-                    vars.append(f"{ref_seq[ref_pos]}{ref_pos+1}{read.query_sequence[q_pos+k]}")
-                ref_pos += 1; q_pos += 1
-        elif op == 1: # Ins
-            if ignore <= ref_pos < (ref_len - ignore):
-                vars.append(f"ins{ref_pos}{read.query_sequence[q_pos:q_pos+length]}")
-            q_pos += length
-        elif op == 2: # Del
-            for k in range(length):
-                if ignore <= ref_pos < (ref_len - ignore):
-                    vars.append(f"del{ref_pos+1}")
-                ref_pos += 1
-        else:
-            ref_pos += length if op in [0, 2, 3, 7, 8] else 0
-            q_pos += length if op in [0, 1, 4, 7, 8] else 0
-    return ",".join(vars) if vars else "Ref"
-
 def main():
-    parser = argparse.ArgumentParser(description="QONTAS: Quantification of ONT Amplicon Sequences")
+    parser = argparse.ArgumentParser(description="QONTAS: Simplified Amplicon Binning & Clustering")
     parser.add_argument("-i", "--input", required=True, help="Input FASTQ")
     parser.add_argument("-r", "--ref", required=True, help="Reference FASTA")
     parser.add_argument("-b", "--bed", required=True, help="BED file")
-    parser.add_argument("-s", "--sample", required=True, help="Sample Basename")
-    parser.add_argument("-o", "--outdir", default="Qontas_Results")
-    parser.add_argument("--mincount", type=int, default=10)
-    parser.add_argument("--ignore", type=int, default=5)
+    parser.add_argument("-s", "--sample", required=True, help="Sample name")
+    parser.add_argument("-o", "--outdir", default="Qontas_Simplified")
+    parser.add_argument("--mincount", type=int, default=10, help="Min reads per cluster")
     
     args = parser.parse_args()
     workdir = os.path.join(args.outdir, args.sample)
@@ -69,13 +42,12 @@ def main():
         run_cmd(f"samtools index {bam}", "Indexing")
 
     regions = parse_bed(args.bed)
-    ref_dict = SeqIO.to_dict(SeqIO.parse(args.ref, "fasta"))
 
     for reg in regions:
         print(f"\n>>> Processing Region: {reg['name']}...")
         clipped_fa = os.path.join(workdir, f"{reg['name']}_clipped.fa")
         
-        # 2. Extract and Hard Clip
+        # 2. Extract and Hard Clip to BED coordinates
         with pysam.AlignmentFile(bam, "rb") as sam, open(clipped_fa, "w") as f:
             read_count = 0
             try:
@@ -97,66 +69,40 @@ def main():
             print(f"    [!] Insufficient reads ({read_count}). Skipping.")
             continue
 
-        # 3. Denoise (Removed --sizeout to keep IDs clean)
-        derep_fa = os.path.join(workdir, f"{reg['name']}_derep.fa")
+        # 3. Denoise/Cluster with VSEARCH
+        derep_fa = os.path.join(workdir, f"{reg['name']}_variants.fa")
         uc_file = os.path.join(workdir, f"{reg['name']}_derep.txt")
-        run_cmd(f"vsearch --derep_fulllength {clipped_fa} --strand plus --output {derep_fa} --uc {uc_file} --minuniquesize {args.mincount}", "Denoising")
+        # Note: --sizeout is kept here so the FASTA headers contain counts for easy viewing
+        run_cmd(f"vsearch --derep_fulllength {clipped_fa} --strand plus --output {derep_fa} --uc {uc_file} --minuniquesize {args.mincount} --sizeout", "Clustering")
 
-        # 4. Final Mapping for Naming
-        ref_slice = ref_dict[reg['chrom']].seq[reg['start']:reg['end']]
-        slice_fa = os.path.join(workdir, f"{reg['name']}_slice.fa")
-        SeqIO.write(SeqRecord(ref_slice, id="slice"), slice_fa, "fasta")
-        
-        ubam = os.path.join(workdir, f"{reg['name']}_unique.bam")
-        # Determine preset based on region length
-        region_len = reg['end'] - reg['start']
-        preset = "sr" if region_len < 300 else "asm5"
-        run_cmd(f"minimap2 -ax {preset} --eqx {slice_fa} {derep_fa} | samtools sort -o {ubam}", "Naming Alignment")
-        
-        # 5. Build Variant Map from BAM
-        var_data = []
-        with pysam.AlignmentFile(ubam, "rb") as u:
-            for r in u:
-                if not (r.is_secondary or r.is_supplementary or r.is_unmapped):
-                    # IDs are now clean (no ;size=N)
-                    clean_id = r.query_name.split(' ')[0]
-                    var_name = get_variants(r, str(ref_slice), ignore=args.ignore)
-                    var_data.append({'ID': clean_id, 'Variant': var_name})
-        
-        df_vars = pd.DataFrame(var_data)
-
-        # 6. Final Table Assembly
+        # 4. Generate Final Table from UC file
         try:
             df_uc = pd.read_csv(uc_file, sep="\t", header=None, dtype=str)
+            # Column 8 (index 8) is the Cluster ID, Column 2 (index 2) is the Count
             clusters = df_uc[df_uc[0] == 'C'][[8, 2]].copy()
-            clusters.columns = ['ID', 'Count']
-            
-            # Numeric conversion for math
+            clusters.columns = ['ClusterID', 'Count']
             clusters['Count'] = pd.to_numeric(clusters['Count'])
             
-            # Merge IDs with Variant Names
-            final_merge = pd.merge(clusters, df_vars, on='ID', how='left')
-            final_merge['Variant'] = final_merge['Variant'].fillna("Unaligned")
+            # Calculate Abundance
+            total_reads = clusters['Count'].sum()
+            clusters['RelAbund'] = (clusters['Count'] / total_reads) * 100 if total_reads > 0 else 0
+            clusters = clusters.sort_values("Count", ascending=False)
             
-            # Group and Calculate RelAbund
-            final = final_merge.groupby("Variant")['Count'].sum().reset_index().sort_values("Count", ascending=False)
-            total_reads = final["Count"].sum()
-            final['RelAbund'] = (final['Count'] / total_reads) * 100 if total_reads > 0 else 0
+            res_file = os.path.join(workdir, f"{args.sample}_{reg['name']}_counts.tsv")
+            clusters.to_csv(res_file, sep="\t", index=False)
             
-            res_file = os.path.join(workdir, f"{args.sample}_{reg['name']}_results.tsv")
-            final.to_csv(res_file, sep="\t", index=False)
-            print(f"    [Success] {res_file}")
+            print(f"    [Success] Found {len(clusters)} unique clusters.")
+            print(f"    [Output] Table: {res_file}")
+            print(f"    [Output] Sequences: {derep_fa}")
             
         except Exception as e:
-            print(f"    [!] Table Assembly Error: {e}")
+            print(f"    [!] Table Error: {e}")
 
-        # 7. Cleanup intermediate files
-        print(f"--- Cleaning up intermediates for {reg['name']} ---")
-        temp_files = [clipped_fa, derep_fa, uc_file, slice_fa, ubam, f"{ubam}.bai"]
-        for f_path in temp_files:
-            if os.path.exists(f_path): os.remove(f_path)
+        # 5. Cleanup temporary clipped file
+        if os.path.exists(clipped_fa): os.remove(clipped_fa)
+        if os.path.exists(uc_file): os.remove(uc_file)
 
-    print(f"\nSUCCESS. Final results in: {workdir}")
+    print(f"\nDONE. Results for {args.sample} are in {workdir}")
 
 if __name__ == "__main__":
     main()

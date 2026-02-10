@@ -1,58 +1,92 @@
-# Qontas  
-### :airplane: Quantification of ONT Amplicon Sequences :airplane:   
+# Qontas
 
-[![DOI](https://zenodo.org/badge/652407080.svg)](https://zenodo.org/badge/latestdoi/652407080)  
+### ✈️ Quantification of ONT Amplicon Sequences ✈️
 
-:construction: under construction :construction:  
+**QONTAS** is a pipeline designed to bin, clip, and denoise Nanopore amplicon data. By using a "Cookie Cutter" approach, it extracts specific genomic regions defined in a BED file, flips them to a consistent orientation, and uses VSEARCH to collapse noisy reads into high-confidence biological variants.
 
-The aim of this tool is to take amplicon sequencing reads and generate a table of all variants identified, their counts, and relative abundances.  
+## Key Features
 
-Input:
-1. Sequencing reads in FASTQ format (can be gzipped)
-2. Reference sequence of the target region in FASTA format.
-3. (Optional) BED file defining region of interest.
+* **Hard Clipping:** Strictly extracts sequences within BED coordinates to remove primer/adapter/off-target noise.
+* **Orientation Recovery:** Automatically reorients reverse-mapped reads to the forward strand.
+* **Denoising:** Uses `vsearch` dereplication to filter out random sequencing errors (singletons).
+* **Storage Optimized:** Automatically cleans up large intermediate BAM files after processing.
 
-Output:   
-`basename_clusters.txt` - three column TSV file listing, for each unique sequence: its name, count, and relative abundance  
-`basename_sequence.fasta` - multiFASTA containing each unique sequence in the same order as the clusters file
+## SETUP
 
-## SETUP  
+### 1. Clone the Repository
 
-Clone repo and make scripts executable
 ```bash
 git clone https://github.com/cazzlewazzle89/Qontas.git ~/Software/QONTAS
-
-chmod +x ~/Software/QONTAS/*
+chmod +x ~/Software/QONTAS/qontas.py
 ```
 
-Create conda environment
+### 2. Create Conda Environment
+
+We recommend using `mamba` for faster dependency resolution:
 ```bash
-mamba create -n qontas bioconda::minimap2 bioconda::samtools bioconda::vsearch bioconda::seqkit bioconda::pysam conda-forge::pandas conda-forge::biopython
+mamba create -n qontas -c bioconda -c conda-forge minimap2 samtools vsearch pysam pandas biopython
+conda activate qontas
 ```
 
-Add directory (eg. `~/Software/QONTAS`) to your path  
-Handy guide [here](https://linuxize.com/post/how-to-add-directory-to-path-in-linux/)   
+## USAGE
 
-## USAGE  
+The pipeline is run via `qontas.py`. It requires a BED file that includes your target length constraints in columns 5 and 6.
 
-Current full pipeline is run using the script `qontas.sh` with up to 10 positional parameters.  
-Namely:  
-1. Input FASTQ
-2. Input reference FASTA
-3. Output basename
-4. Output directory
-5. Minimum read length for FASTQ filtering
-6. Maximum read length for FASTQ filtering
-7. Amount of times a sequence must be observed per sample to be retained for relative abundance calculation (recommended to set this >1 to remove singletons [highly likely to be PCR artifacts or sequencing errors])
-8. Mimimum relative abundance as a percentage (eg. 2 or 0.1) for a sequence to be reported 
-9. Number of threads to use for minimap2 mapping  
-10. (optional) BED file defining target region
+### Amplicon Panels (Multi-Region Support)
 
-eg. `qontas.sh sample.fastq.gz ref.fa Qontas_Out sample 600 650 10 1 12 region.bed`  
+QONTAS can also handle multi-target amplicon panels in a single run. You can provide as many regions as you like in the BED file. The script will:
+1.  Bin reads to each region simultaneously using a global alignment.
+2. Process each region independently.
+3.  Generate separate FASTA and TSV outputs for every region listed.
+
+### BED File Format
+
+Ensure your BED file is tab-separated and follows this structure:
+
+```text
+#Chrom   Start   End     Name    MinLen   MaxLen
+chr1     1658    1717    rpoB    600      650
+chr1     2500    3100    gyrA    580      620
+```
+
+### Running the Script
+
+```bash
+python qontas.py \
+    -i sample.fastq.gz \
+    -r reference.fasta \
+    -b regions.bed \
+    -s Sample_Name \
+    -o Qontas_Out \
+    --mincount 10
+```
+
+### Arguments:
+
+| Flag | Description |
+| --- | --- |
+| `-i` | Input FASTQ (can be gzipped). |
+| `-r` | Reference FASTA for the whole genome or target regions. |
+| `-b` | BED file defining regions, names, and length filters. |
+| `-s` | **Sample Name**: Used to create a unique subdirectory. |
+| `-o` | **Output Directory**: Parent folder for all results. |
+| `--mincount` | Minimum identical reads required to retain a cluster (Default: 10). |
+
+## OUTPUT STRUCTURE
+
+QONTAS creates a clean, sample-centric directory structure:
+
+```text
+Qontas_Out/
+└── Sample_Name/
+    ├── rpoB.fa    # Multi-FASTA of denoised variants for rpoB
+    ├── rpoB.tsv   # TSV with counts/abundance for rpoB
+    ├── gyrA.fa    # Multi-FASTA of denoised variants for gyrA
+    └── gyrA.tsv   # TSV with counts/abundance for gyrA
+```
 
 ## TO DO
-- [ ] improve output - give list of variants relative to reference instead of read name
-- [ ] create test dataset  
-- [ ] modify to accept a list of input FASTQ files (TSV format) and output a single merged feature table  
-   * alternatively, write a script that combines all the individual outputs 
-- [ ] include flag to modify minimap -x flag allowing PacBio (`-x map-pb`) or Illumina (`-x sr`) reads (these will probably need to be merged beforehand)
+
+* [ ] **Variant Calling:** Add a step to generate SNV strings (e.g., A26G) relative to reference.
+* [ ] **Multi-Sample:** Add a script to merge all `.tsv` files into a single feature table.
+* [ ] **Test Data:** Provide a small subset of reads for benchmarking.

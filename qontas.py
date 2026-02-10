@@ -19,35 +19,47 @@ def parse_bed(bed_file):
         for line in f:
             if line.startswith("#") or not line.strip(): continue
             p = line.strip().split('\t')
-            regs.append({'chrom': p[0], 'start': int(p[1]), 'end': int(p[2]), 'name': p[3]})
+            # Columns: 0:Chrom, 1:Start, 2:End, 3:Name, 4:MinLen, 5:MaxLen
+            regs.append({
+                'chrom': p[0], 
+                'start': int(p[1]), 
+                'end': int(p[2]), 
+                'name': p[3],
+                'min_len': int(p[4]) if len(p) >= 5 else 100,
+                'max_len': int(p[5]) if len(p) >= 6 else 1500
+            })
     return regs
 
 def main():
-    parser = argparse.ArgumentParser(description="QONTAS: Simplified Amplicon Binning & Clustering")
+    parser = argparse.ArgumentParser(description="QONTAS: Amplicon Binning with Filtered Abundance Calculation")
     parser.add_argument("-i", "--input", required=True, help="Input FASTQ")
     parser.add_argument("-r", "--ref", required=True, help="Reference FASTA")
-    parser.add_argument("-b", "--bed", required=True, help="BED file")
-    parser.add_argument("-s", "--sample", required=True, help="Sample name")
-    parser.add_argument("-o", "--outdir", default="Qontas_Simplified")
+    parser.add_argument("-b", "--bed", required=True, help="BED file with lengths in cols 5 & 6")
+    parser.add_argument("-s", "--sample", required=True, help="Sample name for subdirectory")
+    parser.add_argument("-o", "--outdir", default="Qontas_Out", help="Parent output directory")
     parser.add_argument("--mincount", type=int, default=10, help="Min reads per cluster")
     
     args = parser.parse_args()
+    
     workdir = os.path.join(args.outdir, args.sample)
     os.makedirs(workdir, exist_ok=True)
 
     # 1. Global Alignment
     bam = os.path.join(workdir, f"{args.sample}_initial.bam")
+    bam_index = bam + ".bai"
     if not os.path.exists(bam):
-        run_cmd(f"minimap2 -ax map-ont {args.ref} {args.input} | samtools view -u -F 2308 | samtools sort -o {bam}", "Global Alignment")
+        run_cmd(f"minimap2 -ax map-ont {args.ref} {args.input} | samtools view -u -F 2308 | samtools sort -o {bam}", f"Global Alignment: {args.sample}")
         run_cmd(f"samtools index {bam}", "Indexing")
 
     regions = parse_bed(args.bed)
 
     for reg in regions:
-        print(f"\n>>> Processing Region: {reg['name']}...")
-        clipped_fa = os.path.join(workdir, f"{reg['name']}_clipped.fa")
+        region_name = reg['name']
+        print(f"\n>>> Processing Region: {region_name}")
         
-        # 2. Extract and Hard Clip to BED coordinates
+        clipped_fa = os.path.join(workdir, f"{region_name}_temp_clipped.fa")
+        
+        # 2. Extract and Hard Clip
         with pysam.AlignmentFile(bam, "rb") as sam, open(clipped_fa, "w") as f:
             read_count = 0
             try:
@@ -67,42 +79,50 @@ def main():
             
         if read_count < args.mincount:
             print(f"    [!] Insufficient reads ({read_count}). Skipping.")
+            if os.path.exists(clipped_fa): os.remove(clipped_fa)
             continue
 
-        # 3. Denoise/Cluster with VSEARCH
-        derep_fa = os.path.join(workdir, f"{reg['name']}_variants.fa")
-        uc_file = os.path.join(workdir, f"{reg['name']}_derep.txt")
-        # Note: --sizeout is kept here so the FASTA headers contain counts for easy viewing
-        run_cmd(f"vsearch --derep_fulllength {clipped_fa} --strand plus --output {derep_fa} --uc {uc_file} --minuniquesize {args.mincount} --sizeout", "Clustering")
+        # 3. Clustering
+        final_fa = os.path.join(workdir, f"{region_name}.fa")
+        final_tsv = os.path.join(workdir, f"{region_name}.tsv")
+        uc_file = os.path.join(workdir, f"{region_name}_derep.txt")
+        
+        vsearch_cmd = (
+            f"vsearch --derep_fulllength {clipped_fa} --strand plus "
+            f"--minseqlength {reg['min_len']} --maxseqlength {reg['max_len']} "
+            f"--output {final_fa} --uc {uc_file} --minuniquesize {args.mincount} --sizeout"
+        )
+        run_cmd(vsearch_cmd, f"Clustering {region_name}")
 
-        # 4. Generate Final Table from UC file
+        # 4. Table Assembly (Filtered Abundance)
         try:
             df_uc = pd.read_csv(uc_file, sep="\t", header=None, dtype=str)
-            # Column 8 (index 8) is the Cluster ID, Column 2 (index 2) is the Count
+            # Filter for Cluster 'C' rows
             clusters = df_uc[df_uc[0] == 'C'][[8, 2]].copy()
             clusters.columns = ['ClusterID', 'Count']
             clusters['Count'] = pd.to_numeric(clusters['Count'])
             
-            # Calculate Abundance
-            total_reads = clusters['Count'].sum()
-            clusters['RelAbund'] = (clusters['Count'] / total_reads) * 100 if total_reads > 0 else 0
+            # --- Key Change: Abundance based only on surviving clusters ---
+            surviving_total = clusters['Count'].sum()
+            clusters['RelAbund'] = (clusters['Count'] / surviving_total) * 100 if surviving_total > 0 else 0
+            
             clusters = clusters.sort_values("Count", ascending=False)
-            
-            res_file = os.path.join(workdir, f"{args.sample}_{reg['name']}_counts.tsv")
-            clusters.to_csv(res_file, sep="\t", index=False)
-            
-            print(f"    [Success] Found {len(clusters)} unique clusters.")
-            print(f"    [Output] Table: {res_file}")
-            print(f"    [Output] Sequences: {derep_fa}")
-            
+            clusters.to_csv(final_tsv, sep="\t", index=False)
+            print(f"    [Success] {region_name}.tsv generated from {len(clusters)} clusters.")
         except Exception as e:
             print(f"    [!] Table Error: {e}")
 
-        # 5. Cleanup temporary clipped file
-        if os.path.exists(clipped_fa): os.remove(clipped_fa)
-        if os.path.exists(uc_file): os.remove(uc_file)
+        # Cleanup region-specific temps
+        for tmp in [clipped_fa, uc_file]:
+            if os.path.exists(tmp): os.remove(tmp)
 
-    print(f"\nDONE. Results for {args.sample} are in {workdir}")
+    # 5. Final Cleanup
+    print(f"\n--- Finalizing Sample {args.sample}: Removing initial BAM files ---")
+    for f_to_del in [bam, bam_index]:
+        if os.path.exists(f_to_del):
+            os.remove(f_to_del)
+
+    print(f"DONE. Results for {args.sample} located in {workdir}")
 
 if __name__ == "__main__":
     main()

@@ -137,7 +137,7 @@ def filter_fastq_seqkit(input_file, output_file, min_len, max_len, threads):
     cmd = (f"seqkit seq -j {threads} -m {min_len} -M {max_len} {input_file} -o {output_file}")
     run_cmd(cmd, "SeqKit Filtering")
 
-# --- 2. Extract & Trim Reads (BAM Index Optimized) ---
+# --- 2. Extract & Trim Reads (FIXED: No Double Flip) ---
 def extract_reads_for_region(input_bam, output_fasta, region_name, chrom, start, end):
     print(f"--- Extracting Region: {region_name} ({chrom}:{start}-{end}) ---")
     
@@ -150,7 +150,6 @@ def extract_reads_for_region(input_bam, output_fasta, region_name, chrom, start,
     try:
         iter_reads = bam.fetch(contig=chrom, start=start, stop=end)
     except ValueError:
-        # Fallback if chrom name in BAM differs from BED
         iter_reads = bam.fetch()
 
     for read in iter_reads:
@@ -181,10 +180,9 @@ def extract_reads_for_region(input_bam, output_fasta, region_name, chrom, start,
             seq_str = read.query_sequence[s_idx:e_idx]
             seq_obj = Seq(seq_str)
             
-            # Reorient
-            if read.is_reverse:
-                seq_obj = seq_obj.reverse_complement()
-
+            # REMOVED: The manual reverse_complement block.
+            # BAM query_sequence is already oriented to the reference.
+            
             record = SeqRecord(seq_obj, id=read.query_name, description=f"region={region_name}")
             seq_records.append(record)
             processed += 1
@@ -229,7 +227,6 @@ def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, ref_slic
     # Call Variants
     if ref_slice:
         print("    Calling variants (SNPs/Indels)...")
-        # Load sequences into dict for fast lookup
         seq_dict = {r.id: str(r.seq) for r in SeqIO.parse(derep_fasta, "fasta")}
         variants = []
         for cid in clusters["Cluster"]:
@@ -313,7 +310,7 @@ def main():
         r_start = reg['start']
         r_end = reg['end']
         
-        # ALWAYS suffix region name, even if there is only 1
+        # ALWAYS suffix region name
         prefix = f"{args.base}_{r_name}"
         region_out_base = os.path.join(args.outdir, prefix)
         

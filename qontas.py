@@ -133,7 +133,7 @@ def main():
     parser.add_argument("-i", "--input", required=True, help="Input FASTQ file")
     parser.add_argument("-r", "--ref", required=True, help="Reference FASTA file")
     parser.add_argument("-b", "--base", required=True, help="Output Basename")
-    parser.add_argument("-o", "--outdir", default="Qontas_Direct_Out", help="Output Directory")
+    parser.add_argument("-o", "--outdir", default="Qontas_Out", help="Output Directory")
     parser.add_argument("-t", "--threads", type=int, default=4)
     parser.add_argument("--region", required=True, help="BED file (Chrom Start End Name [MinLen MaxLen])")
     parser.add_argument("--ignore_edges", type=int, default=3, help="Ignore variants at edges")

@@ -30,13 +30,14 @@ def parse_bed(bed_file):
     return regs
 
 def main():
-    parser = argparse.ArgumentParser(description="QONTAS: Robust Strand-Agnostic Clustering")
+    parser = argparse.ArgumentParser(description="QONTAS: Quantification of ONT Amplicon Sequences")
     parser.add_argument("-i", "--input", required=True)
     parser.add_argument("-r", "--ref", required=True)
     parser.add_argument("-b", "--bed", required=True)
     parser.add_argument("-s", "--sample", required=True)
     parser.add_argument("-o", "--outdir", default="Qontas_Out")
-    parser.add_argument("--mincount", type=int, default=10)
+    parser.add_argument("-c", "--mincount", type=int, default=10)
+    parser.add_argument("-t", "--threads", type=int, default=4)
     
     args = parser.parse_args()
     workdir = os.path.join(args.outdir, args.sample)
@@ -45,7 +46,7 @@ def main():
     bam = os.path.join(workdir, f"{args.sample}_initial.bam")
     bam_index = bam + ".bai"
     if not os.path.exists(bam):
-        run_cmd(f"minimap2 -ax map-ont {args.ref} {args.input} | samtools view -u -F 2308 | samtools sort -o {bam}", "Global Alignment")
+        run_cmd(f"minimap2 -ax map-ont -t {args.threads} {args.ref} {args.input} | samtools view -u -F 2308 | samtools sort -o {bam}", "Global Alignment")
         run_cmd(f"samtools index {bam}", "Indexing")
 
     regions = parse_bed(args.bed)
@@ -69,7 +70,6 @@ def main():
                         if q_s is not None and q_e is not None:
                             s, e = (q_s, q_e) if q_s < q_e else (q_e, q_s)
                             seq_str = r.query_sequence[s:e+1]
-                            # We still reorient based on BAM as a first pass
                             seq_obj = Seq(seq_str)
                             if r.is_reverse: seq_obj = seq_obj.reverse_complement()
                             f.write(f">{r.query_name}\n{str(seq_obj)}\n")
@@ -84,9 +84,6 @@ def main():
         final_tsv = os.path.join(workdir, f"{region_name}.tsv")
         uc_file = os.path.join(workdir, f"{region_name}_derep.txt")
         
-        # --- THE FIX: --strand both ---
-        # This tells VSEARCH to check the RC of every read against every cluster.
-        # It ensures that those two UUIDs you saw will be merged into one.
         v_cmd = (f"vsearch --derep_fulllength {clipped_fa} --strand both "
                  f"--output {final_fa} --uc {uc_file} --minuniquesize {args.mincount} --sizeout")
         run_cmd(v_cmd, "Clustering (Strand-Agnostic)")
@@ -112,4 +109,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

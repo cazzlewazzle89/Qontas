@@ -105,7 +105,7 @@ def main():
         # 3. Denoise (VSEARCH)
         derep_fa = os.path.join(workdir, f"{reg['name']}_derep.fa")
         uc_file = os.path.join(workdir, f"{reg['name']}_derep.txt")
-        run_cmd(f"vsearch --derep_fulllength {clipped_fa} --output {derep_fa} --uc {uc_file} --minuniquesize {args.mincount} --sizeout", f"Denoising {reg['name']}")
+        run_cmd(f"vsearch --derep_fulllength {clipped_fa} --strand plus --output {derep_fa} --uc {uc_file} --minuniquesize {args.mincount} --sizeout", "Denoising")
 
         # 4. Final Mapping for Naming
         ref_slice = ref_dict[reg['chrom']].seq[reg['start']:reg['end']]
@@ -115,7 +115,7 @@ def main():
         region_len = reg['end'] - reg['start']
         preset = "sr" if region_len < 300 else "map-ont"
         ubam = os.path.join(workdir, f"{reg['name']}_unique.bam")
-        run_cmd(f"minimap2 -ax {preset} --eqx {slice_fa} {derep_fa} | samtools sort -o {ubam}", "Naming Alignment")
+        run_cmd(f"minimap2 -ax asm5 --eqx {slice_fa} {derep_fa} | samtools sort -o {ubam}", "Naming Alignment")
         
         # 5. Result Table
         var_map = {}

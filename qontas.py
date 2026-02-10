@@ -252,15 +252,15 @@ def make_feature_table(input_uc, derep_fasta, output_prefix, min_count, min_abun
 
 # --- MAIN ---
 def main():
-    parser = argparse.ArgumentParser(description="QONTAS: Multi-Region Amplicon Pipeline")
+    parser = argparse.ArgumentParser(description="QONTAS: Quantification of ONT Amplicon Sequences")
     parser.add_argument("-i", "--input", required=True, help="Input FASTQ file")
     parser.add_argument("-r", "--ref", required=True, help="Reference FASTA file")
     parser.add_argument("-b", "--base", required=True, help="Output Basename")
-    parser.add_argument("-o", "--outdir", required=True, help="Output Directory")
-    parser.add_argument("--minlen", type=int, default=600, help="FASTQ reads shorter than this will be discarded [600]")
-    parser.add_argument("--maxlen", type=int, default=650, help="FASTQ reads longer than this will be discarded [650]")
-    parser.add_argument("--mincount", type=int, default=10, help="Unique seqeunces must be present this number of times to be reported [10]")
-    parser.add_argument("-t", "--threads", type=int, default=4, help="Number of threads to use [4]")
+    parser.add_argument("-o", "--outdir", default="Qontas_Out", help="Output Directory (default: Qontas_Out)")
+    parser.add_argument("--minlen", type=int, default=600, help="FASTQ reads shorter than this will be discarded (default: 600)")
+    parser.add_argument("--maxlen", type=int, default=650, help="FASTQ reads longer than this will be discarded (default: 650)")
+    parser.add_argument("--mincount", type=int, default=10, help="Unique sequences must be present this number of times to be reported (default: 10)")
+    parser.add_argument("-t", "--threads", type=int, default=4, help="Number of threads to use (default: 4)")
     parser.add_argument("--region", required=True, help="BED file (Chrom Start End [Name])")
 
     args = parser.parse_args()
